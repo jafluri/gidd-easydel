@@ -106,8 +106,8 @@ class MixingSchedule(MixingRate, MixingDistribution, ABC):
         return alpha * probs + (1 - alpha) * self.pi_lambda(log_snr, probs)
 
     def marginal_probs_from_ids(self, log_snr: chex.Array, input_ids: chex.Array) -> chex.Array:
-        alpha = self.alpha_from_log_snr(log_snr)[..., None]
-        probs = (1 - alpha) * self.pi_lambda_from_ids(log_snr, input_ids)
+        alpha = self.alpha_from_log_snr(log_snr)
+        probs = (1 - alpha[..., None]) * self.pi_lambda_from_ids(log_snr, input_ids)
         probs = probs.at[(*jnp.indices(input_ids.shape), input_ids)].add(alpha)  # scatter_add
         return probs
 
