@@ -22,20 +22,16 @@ class GiddLoss(nn.Module):
         input_ids: chex.Array,
         labels: chex.Array,
         log_snr: chex.Array,
+        return_aux: bool = False,
     ) -> tuple[chex.Array, chex.Array]:
-
-        p_log_snr = self.mixing_schedule.p_log_snr(log_snr)
-        loss_weights = self.mixing_schedule.get_loss_weights(log_snr, p_log_snr)
-        elbo_weights = loss_weights / p_log_snr
+        elbo_weights, aux = self.mixing_schedule.get_elbo_weights(log_snr, input_ids, labels, return_aux=True)
+        loss_weights = aux["loss_weights"]
         
         logits[..., self.mask_token_id] = -1e6  # Mask out the logits for the mask token.
         x_hat = nn.softmax(logits, axis=-1)
 
-        log_p_t = self.mixing_schedule.log_probs_at(log_snr, x_hat)
-        log_q_t = self.mixing_schedule.log_probs_at(
-            log_snr,
-            nn.one_hot(labels, self.vocab_size, dtype=logits.dtype),
-        )
+        log_p_t = self.mixing_schedule.marginal_log_probs(log_snr, x_hat)
+        log_q_t = self.mixing_schedule.marginal_log_probs_from_ids(log_snr, labels)
 
         log_p_zt = jnp.take_along_axis(log_p_t, input_ids[..., None], axis=-1).squeeze(-1)
         log_q_zt = jnp.take_along_axis(log_q_t, input_ids[..., None], axis=-1).squeeze(-1)
@@ -45,10 +41,12 @@ class GiddLoss(nn.Module):
         kl_div = optax.losses.kl_divergence_with_log_targets(log_p_t, log_q_t, axis=-1)
 
         loss = loss_weights * (kl_div + self.beta_is_div * is_div)
-        elbo = elbo_weights * (kl_div + is_div)
 
-        return loss, {
-            "elbo": elbo,
-            "kl_div": kl_div,
-            "is_div": is_div,
-        }
+        if return_aux:
+            elbo = elbo_weights * (kl_div + is_div)
+            return loss, {
+                "elbo": elbo,
+                "kl_div": kl_div,
+                "is_div": is_div,
+            }
+        return loss

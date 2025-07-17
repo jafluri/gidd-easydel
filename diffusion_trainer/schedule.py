@@ -81,8 +81,8 @@ class MixingDistribution(nn.Module, ABC):
 
     def pi_lambda_from_ids(self, log_snr: chex.Array, input_ids: chex.Array) -> chex.Array:
         """
-        Default implementation uses `one_hot` -> `probs_from_logits`,
-        but it may be overridden with a more efficient version.
+        Default implementation uses `one_hot` -> `probs_from_logits`.
+        May be overridden by a more efficient implementation.
         """
         probs = nn.one_hot(input_ids, self.vocab_size)
         return self.pi_lambda(log_snr, probs)
@@ -95,8 +95,17 @@ class MixingDistribution(nn.Module, ABC):
         pi_prime = jax.vmap(jax.jacobian(self.pi_lambda))(log_snr.reshape(-1), probs.reshape(-1, probs.shape[-1]))
         return pi_prime.reshape(log_snr.shape + (-1,))
 
+    def pi_lambda_prime_from_ids(self, log_snr: chex.Array) -> chex.Array:
+        """
+        Default implementation uses `one_hot` -> `probs_from_logits`.
+        May be overridden by a more efficient implementation.
+        """
+        input_ids = jnp.arange(self.vocab_size)
+        probs = nn.one_hot(input_ids, self.vocab_size)
+        return self.pi_lambda_prime(log_snr, probs)
 
-class MixingSchedule(MixingRate, MixingDistribution, ABC):
+
+class MixingSchedule(MixingRate, MixingDistribution):
     def __init__(self, rate: MixingRate, distribution: MixingDistribution):
         self._rate = rate
         self._distribution = distribution
@@ -111,9 +120,17 @@ class MixingSchedule(MixingRate, MixingDistribution, ABC):
         probs = probs.at[(*jnp.indices(input_ids.shape), input_ids)].add(alpha)  # scatter_add
         return probs
 
+    def marginal_log_probs(self, log_snr: chex.Array, probs: chex.Array) -> chex.Array:
+        marginal_probs = self.marginal_probs(log_snr, probs)
+        return jnp.log(marginal_probs).clip(-1e6)
+
+    def marginal_log_probs_from_ids(self, log_snr: chex.Array, input_ids: chex.Array) -> chex.Array:
+        marginal_probs = self.marginal_probs_from_ids(log_snr, input_ids)
+        return jnp.log(marginal_probs).clip(-1e6)
+
     def sample_marginals(self, key: chex.PRNGKey, log_snr: chex.Array, labels: chex.Array) -> chex.Array:
-        pr = self.marginal_probs_from_ids(log_snr, labels)
-        return jax.random.categorical(key, jnp.log(pr).clip(-1e6), axis=-1, mode="high")
+        log_probs = self.marginal_log_probs_from_ids(log_snr, labels)
+        return jax.random.categorical(key, log_probs, axis=-1, mode="high")
 
     def sample_prior(self, key: chex.PRNGKey, shape: chex.Shape) -> chex.Array:
         if self.prior_distribution == Priors.MASKED:
@@ -124,6 +141,48 @@ class MixingSchedule(MixingRate, MixingDistribution, ABC):
             return jax.random.choice(key, self.vocab_size, shape=shape, p=self.prior_distribution, mode="high")
         else:
             raise ValueError(f"Unknown prior distribution: {self.prior_distribution}")
+
+
+    def get_loss_weights(self, log_snr: chex.Array, input_ids: chex.Array, labels: chex.Array) -> chex.Array:
+        pi = self.pi_lambda_from_ids(log_snr, input_ids)
+        pi_prime = self.pi_lambda_prime_from_ids(log_snr, input_ids)
+        pi_at_z = jnp.take_along_axis(pi, input_ids[..., None], axis=-1).squeeze(-1)  # gather
+        pi_prime_at_z = jnp.take_along_axis(pi_prime, input_ids[..., None], axis=-1).squeeze(-1)  # gather
+
+        snr = jnp.exp(log_snr)
+        delta_zx = (input_ids == labels).astype(log_snr.dtype)
+        loss_weights = (pi_at_z - pi_prime_at_z) / (pi_at_z + snr*delta_zx)
+        return loss_weights
+    
+    def get_elbo_weights(
+        self,
+        log_snr: chex.Array,
+        input_ids: chex.Array,
+        labels: chex.Array,
+        return_aux: bool = False,
+    ) -> chex.Array | tuple[chex.Array, dict[str, chex.Array]]:
+        """
+        Computes the ELBO weights for the given log_snr.
+        
+        Args:
+            log_snr (chex.Array): log signal-to-noise ratio.
+            input_ids (chex.Array): noised token IDs.
+            labels (chex.Array): target token IDs.
+            return_aux (bool): If True, also returns `loss_weights` and `p_log_snr`.
+        
+        Returns:
+            chex.Array or tuple: The ELBO weights, optionally with auxiliary information.
+        """
+        loss_weights = self.get_loss_weights(log_snr, p_log_snr, input_ids, labels)
+        p_log_snr = self.p_log_snr(log_snr)
+        elbo_weights = loss_weights / p_log_snr
+        if return_aux:
+            return elbo_weights, {
+                "p_log_snr": p_log_snr,
+                "loss_weights": loss_weights,
+            }
+        return elbo_weights
+
 
     """
     MixingRate methods
@@ -169,6 +228,9 @@ class MixingSchedule(MixingRate, MixingDistribution, ABC):
 
     def pi_lambda_prime(self, log_snr: chex.Array, probs: chex.Array) -> chex.Array:
         return self._distribution.pi_lambda_prime(log_snr, probs)
+
+    def pi_lambda_prime_from_ids(self, log_snr: chex.Array) -> chex.Array:
+        return self._distribution.pi_lambda_prime_from_ids(log_snr)
 
 
 class LinearMixingRate(MixingRate):
