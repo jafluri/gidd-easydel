@@ -9,10 +9,9 @@ from eformer.escale import with_sharding_constraint
 from jax.sharding import PartitionSpec
 
 from easydel.infra.base_state import EasyDeLState
-from easydel.infra.loss_utils import LossConfig
+from easydel.infra.loss_utils import LossConfig, LossMetrics
 from easydel.trainers.training_utils import make_assertions_and_get_sizes, minibatch_call, update_metrics, update_state_respectfully
 
-from ._metrics import DiffusionLossMetrics
 from .loss import GiddLoss
 
 
@@ -37,15 +36,16 @@ def compute_loss(loss_fn, state, tree, minibatch) -> tuple[chex.Array, Diffusion
         if type(loss_mask) is not chex.Array:
             loss_mask = None
 
-        loss, elbo = loss_fn(
+        loss, metrics = loss_fn(
             logits=logits,
             input_ids=input_ids,
             labels=labels,
             log_snr=log_snr,
+            return_aux=True,
         )
-        return loss, DiffusionLossMetrics(
+        return loss, LossMetrics(
             loss=loss,
-            elbo=elbo,
+            other_metrics=metrics,
         )
 
 def training_step(
@@ -57,7 +57,7 @@ def training_step(
     partition_spec: PartitionSpec | None = None,
     gradient_accumulation_steps: int = 1,
     is_training: bool = True,
-) -> tuple[EasyDeLState, DiffusionLossMetrics]:
+) -> tuple[EasyDeLState, LossMetrics]:
     # Determine batch size, minibatch size, and enforce partition spec.
     batch_size, minibatch_size, partition_spec = make_assertions_and_get_sizes(
         batch=batch,
