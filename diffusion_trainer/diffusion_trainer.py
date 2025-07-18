@@ -1,16 +1,3 @@
-# Copyright 2025 The EasyDeL Author @erfanzar (Erfan Zare Chavoshi).
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-#     https://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
 import typing as tp
 
 import jax
@@ -48,7 +35,6 @@ class DiffusionTrainer(Trainer):
         loss_fn: GiddLoss | None = None,
         train_dataset: Dataset | None = None,
         eval_dataset: Dataset | dict[str, Dataset] | None = None,
-        data_collator: _default_collator | None = None,
     ):
         self.tokenizer = tokenizer
         assert isinstance(arguments, DiffusionConfig), "passed argument must be a `DiffusionConfig`."
@@ -59,12 +45,28 @@ class DiffusionTrainer(Trainer):
         if not isinstance(model, EasyDeLState):
             model = model.to_state()
 
+        if train_dataset is not None:
+            train_dataset = self._prepare_dataset(
+                train_dataset,
+                dataset_tokens_field=arguments.dataset_tokens_field,
+                max_sequence_length=arguments.max_sequence_length,
+                num_of_sequences=arguments.total_batch_size,
+                append_eos_token=arguments.append_eos_token,
+            )
+        if eval_dataset is not None:
+            eval_dataset = self._prepare_dataset(
+                eval_dataset,
+                dataset_tokens_field=arguments.dataset_tokens_field,
+                max_sequence_length=arguments.max_sequence_length,
+                num_of_sequences=arguments.eval_batch_size,
+                append_eos_token=arguments.append_eos_token,
+            )
+
         super().__init__(
             arguments=arguments,
             dataset_train=train_dataset,
             dataset_eval=eval_dataset,
             model_state=model,
-            data_collator=data_collator,
         )
 
     def configure_functions(self) -> TrainerConfigureFunctionOutput:
@@ -130,14 +132,13 @@ class DiffusionTrainer(Trainer):
             checkpoint_manager=self.arguments.get_streaming_checkpointer(),
         )
 
-    @staticmethod
-    def _prepare_dataloader(
+    def _prepare_dataset(
+        self,
         dataset,
         dataset_tokens_field,
         max_sequence_length,
         num_of_sequences,
-        append_concat_token=True,
-        add_special_tokens=True,
+        append_eos_token=True,
     ):
         """
         Prepares a packed dataloader from the given dataset.
@@ -157,10 +158,8 @@ class DiffusionTrainer(Trainer):
             formatting_func (tp.Callable, optional): A function to format each sample from the dataset
                 before packing. It should take a sample as input and return a dictionary with a "text"
                 key containing the processed text. Defaults to None.
-            append_concat_token (bool, optional): Whether to append a special concatenation token
+            append_eos_token (bool, optional): Whether to append a special concatenation token
                 between packed sequences. Defaults to True.
-            add_special_tokens (bool, optional): Whether to add special tokens (like BOS, EOS)
-                during tokenization. Defaults to True.
 
         Returns:
             Dataset: The processed dataset with packed sequences.
@@ -171,17 +170,12 @@ class DiffusionTrainer(Trainer):
         """
         if dataset_tokens_field is not None:
             constant_length_iterator = create_constant_length_dataset(
-                processing_class=processing_class,
-                dataset=dataset,
-                dataset_text_field=dataset_text_field,
-                formatting_func=formatting_func,
+                dataset,
+                tokens_field=dataset_tokens_field,
                 seq_length=max_sequence_length,
-                infinite=False,
-                num_of_sequences=num_of_sequences,
-                chars_per_token=chars_per_token,
-                eos_token_id=tokenizer.eos_token_id,
-                append_concat_token=append_concat_token,
-                add_special_tokens=add_special_tokens,
+                eos_token_id=self.tokenizer.eos_token_id,
+                batch_size=num_of_sequences,
+                append_eos_token=append_eos_token,
             )
 
             def data_generator(inner_constant_length_iterator):
@@ -189,7 +183,7 @@ class DiffusionTrainer(Trainer):
 
             # Import Only and Only when needed, don't dst the runtime.
             try:
-                from datasets import Dataset
+                from datasets import IterableDataset
                 from datasets.arrow_writer import SchemaInferenceError
                 from datasets.builder import DatasetGenerationError
             except ImportError as exc:
@@ -198,7 +192,7 @@ class DiffusionTrainer(Trainer):
                     "library using `pip install datasets`."
                 ) from exc
             try:
-                packed_dataset = Dataset.from_generator(
+                packed_dataset = IterableDataset.from_generator(
                     data_generator,
                     gen_kwargs={"inner_constant_length_iterator": constant_length_iterator},
                 )

@@ -11,6 +11,9 @@ class DiffusionConfig(TrainingArguments):
     trainer_prefix: str | None = field(
         default="diffusiontrainer", metadata={"help": "default prefix name for trainer."}
     )
+    dataset_tokens_field: str = field(default="tokens", metadata={
+        "help": "Name of the field in the dataset that contains the tokenized text."
+    })
     # loss arguments
     beta_is_div: float = field(default=1.0, metadata={"help": "Weight of the IS-divergence loss"})
     # mixing schedule
