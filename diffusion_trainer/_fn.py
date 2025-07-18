@@ -4,6 +4,7 @@ import typing as tp
 import chex
 import flax.nnx as nn
 import jax
+import jax.numpy as jnp
 import optax
 from eformer.escale import with_sharding_constraint
 from jax.sharding import PartitionSpec
@@ -43,6 +44,29 @@ def compute_loss(loss_fn, state, tree, minibatch) -> tuple[chex.Array, Diffusion
             log_snr=log_snr,
             return_aux=True,
         )
+
+        # Apply mask and compute normalized loss/metrics
+        if loss_mask is not None:
+            # Mask the loss and all metrics
+            masked_loss = loss * loss_mask
+            masked_metrics = {k: v * loss_mask for k, v in metrics.items()}
+            
+            # Compute normalization factor
+            mask_sum = loss_mask.sum()
+            
+            # Normalize loss and metrics by the number of valid tokens
+            loss = masked_loss.sum() / jnp.maximum(mask_sum, 1.0)
+            metrics = {
+                k: v.sum() / jnp.maximum(mask_sum, 1.0)
+                for k, v in masked_metrics.items()
+            }
+            metrics["num_tokens"] = mask_sum
+        else:
+            # No mask - compute mean directly
+            loss = loss.mean()
+            metrics = {k: v.mean() for k, v in metrics.items()}
+            metrics["num_tokens"] = jnp.prod(jnp.array(loss.shape))
+
         return loss, LossMetrics(
             loss=loss,
             other_metrics=metrics,
