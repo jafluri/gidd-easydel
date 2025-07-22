@@ -1,6 +1,9 @@
+import random
 import typing as tp
 
 import jax
+import jax.numpy as jnp
+import flax.nnx as nn
 from jax.sharding import NamedSharding, PartitionSpec
 from transformers import PreTrainedTokenizerBase
 
@@ -10,9 +13,11 @@ from easydel.utils.helpers import get_logger
 from easydel.trainers.trainer import Trainer
 from easydel.trainers.trainer_protocol import TrainerConfigureFunctionOutput
 
+
 from ._utils import create_constant_length_dataset
 from ._fn import training_step
 from .loss import GiddLoss
+from .schedule import create_mixing_schedule
 from .diffusion_config import DiffusionConfig
 
 if tp.TYPE_CHECKING:
@@ -24,23 +29,44 @@ logger = get_logger(__name__)
 
 
 class DiffusionTrainer(Trainer):
-    teacher_state: EasyDeLState
-    arguments: DiffusionConfig  # type hinting
+    arguments: DiffusionConfig
+    tokenizer: PreTrainedTokenizerBase
+    mixing_schedule: nn.Module
+    loss_fn: GiddLoss
 
     def __init__(
         self,
         arguments: DiffusionConfig,
         tokenizer: PreTrainedTokenizerBase,
         model: EasyDeLBaseModule | EasyDeLState | None = None,
-        loss_fn: GiddLoss | None = None,
         train_dataset: Dataset | None = None,
         eval_dataset: Dataset | dict[str, Dataset] | None = None,
+        seed: int | None = None,
     ):
-        self.tokenizer = tokenizer
         assert isinstance(arguments, DiffusionConfig), "passed argument must be a `DiffusionConfig`."
+        assert model is not None, "You must pass a `model` to the DiffusionTrainer."
+
+        if seed is None:
+            seed = random.randint(0, 2**31 - 1)
+        self.key = jax.random.PRNGKey(seed)
 
         self.arguments = arguments
-        self.loss_fn = loss_fn
+        self.tokenizer = tokenizer
+        self.mixing_schedule = create_mixing_schedule(
+            rate=arguments.mixing_rate,
+            distribution="hybrid",
+            vocab_size=len(tokenizer),
+            prior_distribution="masked",
+            mask_token_id=tokenizer.mask_token_id,
+            hybrid_scale=arguments.hybrid_mixing_scale,
+            hybrid_shift=arguments.hybrid_mixing_shift,
+        )
+        self.loss_fn = GiddLoss(
+            mixing_schedule=self.mixing_schedule,
+            vocab_size=len(tokenizer),
+            beta_is_div=arguments.beta_is_div,
+            mask_token_id=tokenizer.mask_token_id,
+        )
 
         if not isinstance(model, EasyDeLState):
             model = model.to_state()
@@ -67,7 +93,128 @@ class DiffusionTrainer(Trainer):
             dataset_train=train_dataset,
             dataset_eval=eval_dataset,
             model_state=model,
+            data_collator=self.prepare_batch,
         )
+
+    def prepare_batch(self, batch: dict[str, jax.Array]) -> dict[str, jax.Array]:
+        labels = batch["input_ids"]
+        shape = labels.shape
+
+        # Split key for independent sampling operations
+        self.key, noise_key, snr_key, marginal_key = jax.random.split(self.key, 4)
+
+        noise_mask = self._sample_noise_mask(noise_key, shape)
+        log_snr = self._sample_log_snr(snr_key, shape)
+        log_snr = noise_mask * log_snr
+        input_ids = self.mixing_schedule.sample_marginals(marginal_key, log_snr, labels)
+
+        batch["input_ids"] = input_ids
+        batch["labels"] = labels
+        batch["log_snr"] = log_snr
+        batch["noise_mask"] = noise_mask
+        batch["attention_mask"] = batch.get("attention_mask", jnp.ones(shape, dtype=bool))
+        return batch
+    
+    def _sample_log_snr(self, key: jax.Array, shape: tuple[int, ...]) -> jax.Array:
+        """
+        Sample log-SNR values for the given shape based on the configured noise parameters.
+        Args:
+            key: Random key for sampling
+            shape: Shape of the sequence (batch_size, sequence_length)
+        Returns:
+            jax.Array: Sampled log-SNR values for each token in the sequence
+        """
+        if len(shape) != 2:
+            raise ValueError(f"Expected shape to be 2D (batch_size, sequence_length), got {len(shape)}D shape: {shape}")
+
+        batch_size, seq_len = shape
+
+        key, snr_key, ind_key, lin_key = jax.random.split(key, 4)
+        log_snr = self.mixing_schedule.sample_log_snr(snr_key, shape)
+
+        r = jax.random.uniform(key, (batch_size,))
+
+        if self.arguments.noise_p_independent > 0:
+            # Sample independent SNR for each token
+            is_independent = r < self.arguments.noise_p_independent
+            log_snr = jnp.where(is_independent[:, None], log_snr, log_snr[:, 0, None])
+        else:
+            is_independent = jnp.zeros(batch_size, dtype=bool)
+            log_snr = jnp.broadcast_to(log_snr[:, 0, None], (batch_size, seq_len))
+
+        if self.arguments.noise_p_linear > 0:
+            # Sample linear SNR based on token position
+            is_linear = ~is_independent & (r < self.arguments.noise_p_linear + self.arguments.noise_p_independent)
+            linear_t = jnp.linspace(0, 1, seq_len + 2, device=self.device)[1:-1]
+            linear_log_snr = self.mixing_schedule.log_snr_from_time(linear_t)
+            log_snr = jnp.where(is_linear[:, None], linear_log_snr[None, :], log_snr)
+
+        # Ensure log_snr is broadcasted correctly
+        assert log_snr.shape == (batch_size, seq_len), "log_snr shape mismatch"
+        return log_snr
+
+    def _sample_noise_mask(self, key: jax.Array, shape: tuple[int, ...]) -> jax.Array:
+        """
+        Sample a noise mask for the given shape based on the configured noise parameters.
+        
+        Args:
+            key: Random key for sampling
+            shape: Shape of the sequence (batch_size, sequence_length)
+            
+        Returns:
+            Boolean mask where True indicates tokens that should have noise applied
+        """
+        batch_size, seq_len = shape
+
+        # Start with all tokens receiving noise
+        noise_mask = jnp.ones(shape, dtype=bool)
+
+        # Split key for different sampling operations
+        key, prompt_key, infill_key = jax.random.split(key, 3)
+
+        # Sample which sequences get prompt conditioning (noise-free prefix)
+        if self.arguments.noise_mask_p_prompt > 0:
+            has_prompt_mask = jax.random.bernoulli(
+                prompt_key, 
+                self.arguments.noise_mask_p_prompt, 
+                shape=(batch_size,)
+            )
+
+            # Sample fraction of prompt tokens for all sequences
+            prompt_key, k = jax.random.split(prompt_key, 2)
+            r = jax.random.uniform(k, (batch_size,))
+            prompt_frac = jnp.arccos(1 - 2*r) / jnp.pi * self.arguments.noise_mask_max_cond_frac
+
+            # Create position masks for prompts
+            positions = jnp.arange(seq_len)[None, :]  # (1, seq_len)
+            promp_mask = positions <= (prompt_frac[:, None] * (seq_len - 1))  # (batch_size, seq_len)
+
+            # Apply prompt conditioning where has_prompt_mask is True
+            prompt_mask = has_prompt_mask[:, None] & promp_mask
+            noise_mask = noise_mask & ~prompt_mask
+
+        # Sample which sequences get infilling conditioning (random noise-free tokens)
+        if self.arguments.noise_mask_p_infilling > 0:
+            has_infill_mask = jax.random.bernoulli(
+                infill_key, 
+                self.arguments.noise_mask_p_infilling, 
+                shape=(batch_size,)
+            )
+
+            # Sample fraction of infill tokens for all sequences
+            infill_key, k1, k2 = jax.random.split(infill_key, 3)
+            r1 = jax.random.uniform(k1, (batch_size,))
+            infill_frac = jnp.arccos(1 - 2*r1) / jnp.pi * self.arguments.noise_mask_max_cond_frac
+
+            # Sample positions for infill tokens
+            infill_p = jax.random.uniform(k2, (batch_size, seq_len))
+            infill_mask = infill_p < infill_frac[:, None]  # (batch_size, seq_len)
+
+            # Apply infill conditioning where has_infill_mask is True
+            infill_mask = has_infill_mask[:, None] & infill_mask
+            noise_mask = noise_mask & ~infill_mask
+
+        return noise_mask
 
     def configure_functions(self) -> TrainerConfigureFunctionOutput:
         """
