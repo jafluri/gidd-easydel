@@ -27,7 +27,7 @@ class GiddLoss(nn.Module):
         elbo_weights, aux = self.mixing_schedule.get_elbo_weights(log_snr, input_ids, labels, return_aux=True)
         loss_weights = aux["loss_weights"]
         
-        logits[..., self.mask_token_id] = -1e6  # Mask out the logits for the mask token.
+        logits = logits.at[..., self.mask_token_id].set(-1e6)  # Mask out the logits for the mask token.
         x_hat = nn.softmax(logits, axis=-1)
 
         log_p_t = self.mixing_schedule.marginal_log_probs(log_snr, x_hat)

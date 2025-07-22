@@ -41,6 +41,7 @@ class DiffusionTrainer(Trainer):
         model: EasyDeLBaseModule | EasyDeLState | None = None,
         train_dataset: Dataset | None = None,
         eval_dataset: Dataset | dict[str, Dataset] | None = None,
+        append_eos_token: bool = True,
         seed: int | None = None,
     ):
         assert isinstance(arguments, DiffusionConfig), "passed argument must be a `DiffusionConfig`."
@@ -77,7 +78,7 @@ class DiffusionTrainer(Trainer):
                 dataset_tokens_field=arguments.dataset_tokens_field,
                 max_sequence_length=arguments.max_sequence_length,
                 num_of_sequences=arguments.total_batch_size,
-                append_eos_token=arguments.append_eos_token,
+                append_eos_token=append_eos_token,
             )
         if eval_dataset is not None:
             eval_dataset = self._prepare_dataset(
@@ -85,7 +86,7 @@ class DiffusionTrainer(Trainer):
                 dataset_tokens_field=arguments.dataset_tokens_field,
                 max_sequence_length=arguments.max_sequence_length,
                 num_of_sequences=arguments.eval_batch_size,
-                append_eos_token=arguments.append_eos_token,
+                append_eos_token=append_eos_token,
             )
 
         super().__init__(
@@ -95,6 +96,7 @@ class DiffusionTrainer(Trainer):
             model_state=model,
             data_collator=self.prepare_batch,
         )
+        logger.info("Initialized DiffusionTrainer")
 
     def prepare_batch(self, batch: dict[str, jax.Array]) -> dict[str, jax.Array]:
         labels = batch["input_ids"]
@@ -228,6 +230,7 @@ class DiffusionTrainer(Trainer):
         Returns:
             TrainerConfigureFunctionOutput: An object containing the configured functions and other relevant information.
         """
+        logger.info("Configuring functions for DiffusionTrainer...")
         mesh = self.model.mesh
 
         empty_sharding = NamedSharding(spec=PartitionSpec(), mesh=mesh)
@@ -241,7 +244,7 @@ class DiffusionTrainer(Trainer):
             True,  # is_train
         )
 
-        static_argnames = (3, 4, 5, 6, 7, 8)
+        static_argnames = (2, 3, 4, 5, 6, 7)
         sharded_training_step_function = jax.jit(
             training_step,
             in_shardings=(self.state_shardings, empty_sharding),
@@ -266,12 +269,9 @@ class DiffusionTrainer(Trainer):
             static_argnums=static_argnames,
         )
 
-        flops_per_tkn = self.teacher_state.model.flops_per_token(include_loss=True, include_backward=True)
-
-        self._extra_forward_flops_per_token = flops_per_tkn
-        self._extra_backward_flops_per_token = flops_per_tkn
-
         self.arguments.ensure_checkpoint_path()
+
+        logger.info("Functions configured successfully.")
         return TrainerConfigureFunctionOutput(
             sharded_training_step_function=sharded_training_step_function,
             sharded_evaluation_step_function=sharded_evaluation_step_function,
@@ -322,7 +322,7 @@ class DiffusionTrainer(Trainer):
                 seq_length=max_sequence_length,
                 eos_token_id=self.tokenizer.eos_token_id,
                 batch_size=num_of_sequences,
-                append_eos_token=append_eos_token,
+                append_concat_token=append_eos_token,
             )
 
             def data_generator(inner_constant_length_iterator):

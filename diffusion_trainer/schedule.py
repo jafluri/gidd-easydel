@@ -193,9 +193,9 @@ class HybridMixingDistribution(MixingDistribution):
         )
         self.scale = scale
         self.shift = shift
-        self.mask_vec = nn.one_hot(self.mask_token_id, vocab_size)
-        u = jnp.full((vocab_size,), 1.0 / (vocab_size - 1))
-        self.uniform_vec = u.at[self.mask_token_id].set(0.0)
+        self.mask_vec = nn.Variable(nn.one_hot(self.mask_token_id, self.vocab_size))
+        u = jnp.full((self.vocab_size,), 1.0 / (self.vocab_size - 1))
+        self.uniform_vec = nn.Variable(u.at[self.mask_token_id].set(0.0))
 
     def pi_lambda(self, log_snr: chex.Array, _: chex.Array | None) -> chex.Array:
         alpha = nn.sigmoid(self.scale * log_snr + self.shift)[..., None]

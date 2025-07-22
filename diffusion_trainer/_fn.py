@@ -13,64 +13,75 @@ from easydel.infra.base_state import EasyDeLState
 from easydel.infra.loss_utils import LossConfig, LossMetrics
 from easydel.trainers.training_utils import make_assertions_and_get_sizes, minibatch_call, update_metrics, update_state_respectfully
 
+from easydel.utils.helpers import get_logger
+
+
 from .loss import GiddLoss
 
+logger = get_logger(__name__)
 
 def compute_loss(loss_fn, state, tree, minibatch) -> tuple[chex.Array, LossMetrics]:
-        input_ids = minibatch.get("input_ids", None)
-        labels = minibatch.get("labels", None)
-        log_snr = minibatch.get("log_snr", None)
-        attention_mask = minibatch.get("attention_mask", None)
-        noise_mask = minibatch.get("noise_mask", True)
+    logger.info("Computing loss...")
+    input_ids = minibatch.get("input_ids", None)
+    labels = minibatch.get("labels", None)
+    log_snr = minibatch.get("log_snr", None)
+    attention_mask = minibatch.get("attention_mask", None)
+    noise_mask = minibatch.get("noise_mask", True)
 
-        module = nn.merge(state.graphdef, tree, state.graphother)
-        outputs = module(
-            input_ids=input_ids,
-            input_embeds=minibatch.get("input_embeds", None),
-            log_snr=log_snr,
-            attention_mask=attention_mask,
-        )
-        logits = outputs.logits
+    module = nn.merge(state.graphdef, tree, state.graphother)
+    logger.info("Calling model forward pass...")
+    outputs = module(
+        input_ids=input_ids,
+        inputs_embeds=minibatch.get("inputs_embeds", None),
+        attention_mask=attention_mask,
+        log_snr=log_snr,
+        noise_mask=noise_mask,
+    )
+    logger.info("Model forward pass completed.")
+    logits = outputs.logits
+    logger.info("Logits obtained from model.")
 
-        attention_mask = minibatch.get("attention_mask", True)
-        loss_mask = attention_mask & noise_mask
-        if type(loss_mask) is not chex.Array:
-            loss_mask = None
+    logger.info("Checking if attention mask is provided...")
+    loss_mask = attention_mask & noise_mask
 
-        loss, metrics = loss_fn(
-            logits=logits,
-            input_ids=input_ids,
-            labels=labels,
-            log_snr=log_snr,
-            return_aux=True,
-        )
+    logger.info("Calling loss function...")
+    loss, metrics = loss_fn(
+        logits=logits,
+        input_ids=input_ids,
+        labels=labels,
+        log_snr=log_snr,
+        return_aux=True,
+    )
+    logger.info("Loss function executed successfully.")
 
-        # Apply mask and compute normalized loss/metrics
-        if loss_mask is not None:
-            # Mask the loss and all metrics
-            masked_loss = loss * loss_mask
-            masked_metrics = {k: v * loss_mask for k, v in metrics.items()}
-            
-            # Compute normalization factor
-            mask_sum = loss_mask.sum()
-            
-            # Normalize loss and metrics by the number of valid tokens
-            loss = masked_loss.sum() / jnp.maximum(mask_sum, 1.0)
-            metrics = {
-                k: v.sum() / jnp.maximum(mask_sum, 1.0)
-                for k, v in masked_metrics.items()
-            }
-            metrics["num_tokens"] = mask_sum
-        else:
-            # No mask - compute mean directly
-            loss = loss.mean()
-            metrics = {k: v.mean() for k, v in metrics.items()}
-            metrics["num_tokens"] = jnp.prod(jnp.array(loss.shape))
+    # Apply mask and compute normalized loss/metrics
+    if loss_mask is not True:
+        # Mask the loss and all metrics
+        masked_loss = loss * loss_mask
+        masked_metrics = {k: v * loss_mask for k, v in metrics.items()}
+        
+        # Compute normalization factor
+        mask_sum = loss_mask.sum()
+        
+        # Normalize loss and metrics by the number of valid tokens
+        loss = masked_loss.sum() / jnp.maximum(mask_sum, 1.0)
+        metrics = {
+            k: v.sum() / jnp.maximum(mask_sum, 1.0)
+            for k, v in masked_metrics.items()
+        }
+        metrics["num_tokens"] = mask_sum
+    else:
+        # No mask - compute mean directly
+        loss = loss.mean()
+        metrics = {k: v.mean() for k, v in metrics.items()}
+        metrics["num_tokens"] = jnp.prod(jnp.array(loss.shape))
 
-        return loss, LossMetrics(
-            loss=loss,
-            other_metrics=metrics,
-        )
+    logger.info("Loss and metrics computed successfully.")
+    return loss, LossMetrics(
+        loss=loss,
+        other_metrics=metrics,
+    )
+
 
 def training_step(
     state: EasyDeLState,
@@ -82,6 +93,7 @@ def training_step(
     gradient_accumulation_steps: int = 1,
     is_training: bool = True,
 ) -> tuple[EasyDeLState, LossMetrics]:
+    logger.info("Starting training step...")
     # Determine batch size, minibatch size, and enforce partition spec.
     batch_size, minibatch_size, partition_spec = make_assertions_and_get_sizes(
         batch=batch,
@@ -100,6 +112,7 @@ def training_step(
             minibatch_size=minibatch_size,
             grad_fn=jax.value_and_grad(_compute_loss, has_aux=True),
         )
+        logger.info("Gradients computed successfully.")
         # Update state using the computed gradients and updated metrics.
         state = update_state_respectfully(
             state=state,
@@ -112,8 +125,8 @@ def training_step(
                 gradients=gradients,
             ),
         )
+        logger.info("State updated successfully.")
     else:
          _, metrics = _compute_loss(state, batch)
 
     return state, metrics
-

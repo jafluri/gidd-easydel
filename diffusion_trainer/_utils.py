@@ -57,7 +57,7 @@ def create_constant_length_dataset(
 
                 while len(buffer) >= seq_length:
                     # Pop the first seq_length tokens to form a complete example
-                    example = jnp.array(buffer[:seq_length], dtype="i4")
+                    example = {"input_ids": jnp.array(buffer[:seq_length], dtype="i4")}
                     buffer = buffer[seq_length:]
                     if shuffle:
                         if len(shuffle_buffer) < shuffle_buffer_size:
