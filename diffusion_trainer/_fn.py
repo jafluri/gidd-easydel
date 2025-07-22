@@ -16,7 +16,7 @@ from easydel.trainers.training_utils import make_assertions_and_get_sizes, minib
 from .loss import GiddLoss
 
 
-def compute_loss(loss_fn, state, tree, minibatch) -> tuple[chex.Array, DiffusionLossMetrics]:
+def compute_loss(loss_fn, state, tree, minibatch) -> tuple[chex.Array, LossMetrics]:
         input_ids = minibatch.get("input_ids", None)
         labels = minibatch.get("labels", None)
         log_snr = minibatch.get("log_snr", None)
