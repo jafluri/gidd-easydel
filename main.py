@@ -9,6 +9,9 @@ from easydel.utils.helpers import get_logger
 
 from diffusion_trainer import DiffusionTrainer, DiffusionConfig
 
+import jax
+jax.config.update('jax_disable_jit', True)
+
 # Initialize Ray for distributed computing. This must be done once per application.
 # ray.init()
 
@@ -68,8 +71,8 @@ def main():
     from transformers import AutoTokenizer
 
     # --- Basic Training Parameters ---
-    max_length = 512
-    total_batch_size = 16
+    max_length = 128
+    total_batch_size = 1
 
     tokenizer = AutoTokenizer.from_pretrained(TOKENIZER_ID)
 
@@ -77,10 +80,10 @@ def main():
     model = ed.GiddForDiffusionLM(
         config=ed.GiddConfig(
             vocab_size=len(tokenizer),
-            hidden_size=768,
-            intermediate_size=3072,
-            num_hidden_layers=12,
-            num_attention_heads=12,
+            hidden_size=256,
+            intermediate_size=1024,
+            num_hidden_layers=4,
+            num_attention_heads=4,
             head_dim=64,
             max_position_embeddings=max_length,
             resid_scale=4.0,
