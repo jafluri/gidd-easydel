@@ -4,6 +4,7 @@ import typing as tp
 import chex
 import flax.nnx as nn
 import jax
+import jax.profiler
 import jax.numpy as jnp
 import optax
 from eformer.escale import with_sharding_constraint
@@ -13,15 +14,10 @@ from easydel.infra.base_state import EasyDeLState
 from easydel.infra.loss_utils import LossConfig, LossMetrics
 from easydel.trainers.training_utils import make_assertions_and_get_sizes, minibatch_call, update_metrics, update_state_respectfully
 
-from easydel.utils.helpers import get_logger
-
-
 from .loss import GiddLoss
 
-logger = get_logger(__name__)
 
 def compute_loss(loss_fn, state, tree, minibatch) -> tuple[chex.Array, LossMetrics]:
-    logger.info("Computing loss...")
     input_ids = minibatch.get("input_ids", None)
     labels = minibatch.get("labels", None)
     log_snr = minibatch.get("log_snr", None)
@@ -29,7 +25,6 @@ def compute_loss(loss_fn, state, tree, minibatch) -> tuple[chex.Array, LossMetri
     noise_mask = minibatch.get("noise_mask", True)
 
     module = nn.merge(state.graphdef, tree, state.graphother)
-    logger.info("Calling model forward pass...")
     outputs = module(
         input_ids=input_ids,
         inputs_embeds=minibatch.get("inputs_embeds", None),
@@ -37,14 +32,10 @@ def compute_loss(loss_fn, state, tree, minibatch) -> tuple[chex.Array, LossMetri
         log_snr=log_snr,
         noise_mask=noise_mask,
     )
-    logger.info("Model forward pass completed.")
     logits = outputs.logits
-    logger.info("Logits obtained from model.")
 
-    logger.info("Checking if attention mask is provided...")
     loss_mask = attention_mask & noise_mask
 
-    logger.info("Calling loss function...")
     loss, metrics = loss_fn(
         logits=logits,
         input_ids=input_ids,
@@ -52,7 +43,6 @@ def compute_loss(loss_fn, state, tree, minibatch) -> tuple[chex.Array, LossMetri
         log_snr=log_snr,
         return_aux=True,
     )
-    logger.info("Loss function executed successfully.")
 
     # Apply mask and compute normalized loss/metrics
     if loss_mask is not True:
@@ -76,7 +66,6 @@ def compute_loss(loss_fn, state, tree, minibatch) -> tuple[chex.Array, LossMetri
         metrics = {k: v.mean() for k, v in metrics.items()}
         metrics["num_tokens"] = jnp.prod(jnp.array(loss.shape))
 
-    logger.info("Loss and metrics computed successfully.")
     return loss, LossMetrics(
         loss=loss,
         other_metrics=metrics,
@@ -93,7 +82,6 @@ def training_step(
     gradient_accumulation_steps: int = 1,
     is_training: bool = True,
 ) -> tuple[EasyDeLState, LossMetrics]:
-    logger.info("Starting training step...")
     # Determine batch size, minibatch size, and enforce partition spec.
     batch_size, minibatch_size, partition_spec = make_assertions_and_get_sizes(
         batch=batch,
@@ -112,7 +100,6 @@ def training_step(
             minibatch_size=minibatch_size,
             grad_fn=jax.value_and_grad(_compute_loss, has_aux=True),
         )
-        logger.info("Gradients computed successfully.")
         # Update state using the computed gradients and updated metrics.
         state = update_state_respectfully(
             state=state,
@@ -125,8 +112,11 @@ def training_step(
                 gradients=gradients,
             ),
         )
-        logger.info("State updated successfully.")
     else:
-         _, metrics = _compute_loss(state, batch)
+        _, metrics = _compute_loss(state, batch)
+
+    # jax.block_until_ready(state)
+    # jax.profiler.save_device_memory_profile(f"memory.prof")
+    # raise KeyboardInterrupt
 
     return state, metrics
