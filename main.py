@@ -69,11 +69,24 @@ def main():
     logger = ed.utils.get_logger(__name__)
 
     # --- Basic Training Parameters ---
-    max_length = 1024
-    total_batch_size = 8
+    seed = 0
 
+    max_length = 512
+    total_batch_size = 32
+
+    num_layers = 12
     hidden_size = 768
     head_dim = 64
+
+    lr = 0.75 / hidden_size**0.5
+    init_scale = 0.4
+    emb_init_scale = 0.1
+    resid_scale = 4.0
+
+    # lr = 5e-4
+    # init_scale = 0.02
+    # emb_init_scale = 0.02
+    # resid_scale = num_layers
 
     tokenizer = AutoTokenizer.from_pretrained(TOKENIZER_ID)
 
@@ -83,19 +96,22 @@ def main():
             vocab_size=len(tokenizer),
             hidden_size=hidden_size,
             intermediate_size=4*hidden_size,
-            num_hidden_layers=12,
+            num_hidden_layers=num_layers,
             num_attention_heads=hidden_size // head_dim,
             head_dim=head_dim,
             max_position_embeddings=max_length,
-            resid_scale=4.0,
-            init_scale=0.4,
-            emb_init_scale=0.1,
+            resid_scale=resid_scale,
+            init_scale=init_scale,
+            emb_init_scale=emb_init_scale,
             head_init_scale=0.0,
-            sharding_axis_dims=(1, jax.process_count(), 1, -1, 1),
+            use_qk_norm=True,
+            sharding_axis_dims=(1, jax.device_count(), 1, -1, 1),
             partition_axis=ed.PartitionAxis(),
             gradient_checkpointing=ed.EasyDeLGradientCheckPointers.NOTHING_SAVEABLE,
             attn_mechanism=ed.AttentionMechanisms.SDPA,
             attn_dtype=jnp.bfloat16,
+            attention_bias=False,
+            mlp_bias=True,
             # scan_layers=True,
         ),
         dtype=jnp.bfloat16,
@@ -115,8 +131,8 @@ def main():
         # This is MANDATORY for streaming datasets. It tells the trainer how many
         # steps constitute one "epoch". Should be ~ (total_dataset_size // total_batch_size).
         per_epoch_training_steps=98_000_000,
-        learning_rate=0.75 / hidden_size**0.5,
-        learning_rate_end=0.05 / hidden_size**0.5,
+        learning_rate=lr,
+        learning_rate_end=0.1 * lr,
         optimizer=ed.EasyDeLOptimizers.ADAMW,
         scheduler=ed.EasyDeLSchedulers.COSINE,
         warmup_steps=2000,
@@ -168,6 +184,7 @@ def main():
         tokenizer=tokenizer,
         train_dataset=train_dataset,
         eval_dataset=None,
+        seed=seed,
     )
 
     # trainer.memory_monitor.start_monitoring()
