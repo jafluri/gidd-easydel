@@ -17,7 +17,7 @@ from easydel.trainers.trainer_protocol import TrainerConfigureFunctionOutput
 from ._utils import create_constant_length_dataset
 from ._fn import training_step
 from .loss import GiddLoss
-from .schedule import create_mixing_schedule
+from .schedule import MixingSchedule, create_mixing_schedule
 from .diffusion_config import DiffusionConfig
 
 if tp.TYPE_CHECKING:
@@ -31,7 +31,7 @@ logger = get_logger(__name__)
 class DiffusionTrainer(Trainer):
     arguments: DiffusionConfig
     tokenizer: PreTrainedTokenizerBase
-    mixing_schedule: nn.Module
+    mixing_schedule: MixingSchedule
     loss_fn: GiddLoss
 
     def __init__(
@@ -55,6 +55,8 @@ class DiffusionTrainer(Trainer):
         self.tokenizer = tokenizer
         self.mixing_schedule = create_mixing_schedule(
             rate=arguments.mixing_rate,
+            min_log_snr=arguments.min_log_snr,
+            max_log_snr=arguments.max_log_snr,
             distribution="hybrid",
             vocab_size=len(tokenizer),
             prior_distribution="masked",

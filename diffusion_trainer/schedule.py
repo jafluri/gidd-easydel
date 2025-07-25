@@ -254,8 +254,8 @@ class MixingSchedule(MixingRate, MixingDistribution):
 
 
     def get_loss_weights(self, log_snr: chex.Array, input_ids: chex.Array, labels: chex.Array) -> chex.Array:
-        pi = self.pi_lambda_from_ids(log_snr, input_ids)
-        pi_prime = self.pi_lambda_prime_from_ids(log_snr, input_ids)
+        pi = self.pi_lambda_from_ids(log_snr, labels)
+        pi_prime = self.pi_lambda_prime_from_ids(log_snr, labels)
         pi_at_z = jnp.take_along_axis(pi, input_ids[..., None], axis=-1).squeeze(-1)  # gather
         pi_prime_at_z = jnp.take_along_axis(pi_prime, input_ids[..., None], axis=-1).squeeze(-1)  # gather
 
@@ -283,13 +283,15 @@ class MixingSchedule(MixingRate, MixingDistribution):
         Returns:
             chex.Array or tuple: The ELBO weights, optionally with auxiliary information.
         """
+        dtype = log_snr.dtype
+        log_snr = log_snr.astype(jnp.float32)
         loss_weights = self.get_loss_weights(log_snr, input_ids, labels)
         p_log_snr = self.p_log_snr(log_snr)
-        elbo_weights = loss_weights / p_log_snr
+        elbo_weights = (loss_weights / p_log_snr.clip(1e-12)).astype(dtype)
         if return_aux:
             return elbo_weights, {
-                "p_log_snr": p_log_snr,
-                "loss_weights": loss_weights,
+                "p_log_snr": p_log_snr.astype(dtype),
+                "loss_weights": loss_weights.astype(dtype),
             }
         return elbo_weights
 
@@ -345,6 +347,8 @@ class MixingSchedule(MixingRate, MixingDistribution):
 
 def create_mixing_schedule(
     rate: MixingRate | tp.Literal["linear"],
+    min_log_snr: float = -10.0,
+    max_log_snr: float = 10.0,
     distribution: MixingDistribution | tp.Literal["general", "hybrid"] = "hybrid",
     pi_lambda: tp.Callable[[chex.Array, chex.Array], chex.Array] | None = None,
     pi_lambda_from_ids: tp.Callable[[chex.Array, chex.Array], chex.Array] | None = None,
@@ -385,7 +389,10 @@ def create_mixing_schedule(
     """
     if isinstance(rate, str):
         if rate == "linear":
-            rate = LinearMixingRate()
+            rate = LinearMixingRate(
+                min_log_snr=min_log_snr,
+                max_log_snr=max_log_snr,
+            )
         else:
             raise ValueError(f"Unknown MixingRate type: {rate}")
 
