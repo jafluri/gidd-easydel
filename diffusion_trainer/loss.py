@@ -29,7 +29,7 @@ class GiddLoss(nn.Module):
     ) -> tuple[chex.Array, chex.Array]:
         log_snr = log_snr.astype(logits.dtype)
         elbo_weights, aux = self.mixing_schedule.get_elbo_weights(log_snr, input_ids, labels, return_aux=True)
-        loss_weights = aux["loss_weights"]
+        loss_weights = aux["loss_weights"].clip(0, 1e3)
         
         logits = logits.at[..., self.mask_token_id].set(-1e6)  # Mask out the logits for the mask token.
         x_hat = nn.softmax(logits, axis=-1)
@@ -44,13 +44,13 @@ class GiddLoss(nn.Module):
 
         kl_div = optax.losses.kl_divergence_with_log_targets(log_p_t, log_q_t, axis=-1)
 
-        loss = loss_weights.clip(0, 1e3) * (kl_div + self.beta_is_div * is_div)
+        loss = loss_weights * (kl_div + self.beta_is_div * is_div)
 
         if return_aux:
             elbo = elbo_weights.clip(0, 1e6) * (kl_div + is_div)
             return loss, {
                 "elbo": elbo,
-                "kl_div": kl_div,
-                "is_div": is_div,
+                "kl_loss": loss_weights * kl_div,
+                "is_loss": loss_weights * is_div,
             }
         return loss
