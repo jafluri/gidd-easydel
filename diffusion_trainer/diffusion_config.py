@@ -18,21 +18,6 @@ class DiffusionConfig(TrainingArguments):
     })
     # loss arguments
     beta_is_div: float = field(default=1.0, metadata={"help": "Weight of the IS-divergence loss"})
-    # mixing schedule
-    min_log_snr: float = field(default=-10.0, metadata={"help": "Min. log-SNR for the mixing schedule"})
-    max_log_snr: float = field(default=-10.0, metadata={"help": "Max. log-SNR for the mixing schedule"})
-    mixing_sigmoid_scale: float = field(default=1.0, metadata={
-        "help": (
-            "Sigmoid scale of the mixing distribution. "
-            "Determines how quickly mixing transitions from uniform to masking."
-        )
-    })
-    mixing_sigmoid_bias: float = field(default=0.0, metadata={
-        "help": (
-            "Sigmoid bias of the mixing distribution. "
-            "Determines at which SNR mixing transitions from uniform to masking."
-        )
-    })
     # noise sampling
     noise_p_independent: float = field(default=1.0, metadata={"help": "Probability that SNR is sampled independently for each token."})
     noise_p_linear: float = field(default=0.0, metadata={"help": "Probability that SNR is sampled linearly increasing in token position."})
@@ -41,7 +26,9 @@ class DiffusionConfig(TrainingArguments):
     noise_mask_max_cond_frac: float = field(default=1.0, metadata={"help": "Max. fraction of noise-free tokens for each conditioning type (prompt, infilling)."})
     # mixing schedule
     mixing_rate: str | MixingRate = field(default="linear", metadata={"help": "Mixing schedule rate, can be 'linear' or any instance of `MixingRate`."})
-    hybrid_mixing_scale: float = field(default=1.0, metadata={"help": "Sigmoid ccale for the hybrid mixing schedule."})
+    min_log_snr: float = field(default=-9.0, metadata={"help": "Min. log-SNR for the mixing schedule"})
+    max_log_snr: float = field(default=9.0, metadata={"help": "Max. log-SNR for the mixing schedule"})
+    hybrid_mixing_scale: float = field(default=1.0, metadata={"help": "Sigmoid scale for the hybrid mixing schedule."})
     hybrid_mixing_shift: float = field(default=0.0, metadata={"help": "Sigmoid shift for the hybrid mixing schedule."})
 
     __hash__ = hash_fn
