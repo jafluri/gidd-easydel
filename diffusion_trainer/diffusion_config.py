@@ -19,7 +19,7 @@ class DiffusionConfig(TrainingArguments):
     # loss arguments
     beta_is_div: float = field(default=1.0, metadata={"help": "Weight of the IS-divergence loss"})
     # noise sampling
-    noise_p_independent: float = field(default=1.0, metadata={"help": "Probability that SNR is sampled independently for each token."})
+    noise_p_independent: float = field(default=0.5, metadata={"help": "Probability that SNR is sampled independently for each token."})
     noise_p_linear: float = field(default=0.0, metadata={"help": "Probability that SNR is sampled linearly increasing in token position."})
     noise_mask_p_prompt: float = field(default=0.1, metadata={"help": "Probability that a sample has a noise-free prompt."})
     noise_mask_p_infilling: float = field(default=0.1, metadata={"help": "Probability that a sample has noise-free tokens (chosen uniformly at random)."})
