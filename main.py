@@ -65,10 +65,8 @@ def main():
 
     logger = ed.utils.get_logger(__name__)
 
-    jax.distributed.initialize()
-
-    logger.info("Process count: %d, device count: %d, process index: %d",
-                jax.process_count(), jax.local_device_count(), jax.process_index())
+    # logger.info("Process count: %d, device count: %d, process index: %d",
+    #             jax.process_count(), jax.local_device_count(), jax.process_index())
 
     # --- Basic Training Parameters ---
     seed = 0
