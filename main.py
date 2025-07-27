@@ -6,7 +6,7 @@ import ray
 from eformer.executor.ray import TpuAcceleratorConfig, execute
 
 # Initialize Ray for distributed computing. This must be done once per application.
-# ray.init()
+ray.init()
 
 SAVE_DIRECTORY = os.environ.get("SAVE_DIRECTORY", "outputs/diffusion_trainer")
 
@@ -19,36 +19,33 @@ WANDB_ENTITY = os.environ.get("WANDB_ENTITY", None)
 # --- Environment and TPU Configuration ---
 # These environment variables are passed to each Ray worker to ensure they have
 # access to necessary tokens and use efficient shared memory for caching.
-# TPU_EXECUTION_ENV_VARS = {
-#     "EASYDEL_AUTO": "1",  # Enables EasyDeL's automatic sharding configuration.
-#     "HF_TOKEN": os.environ.get("HF_TOKEN_FOR_EASYDEL", ""),  # Hugging Face token.
-#     "HF_DATASETS_CACHE": "/dev/shm/huggingface-dataset",  # RAM-disk for dataset cache.
-#     "HF_HOME": "/dev/shm/huggingface",  # RAM-disk for model cache.
-#     "HF_DATASETS_OFFLINE": "0",  # Allow online dataset access.
-#     "WANDB_API_KEY": os.environ.get("WANDB_API_KEY_FOR_EASYDEL", ""),  # W&B API key.
-# }
+EXECUTION_ENV_VARS = {
+    "EASYDEL_AUTO": "1",  # Enables EasyDeL's automatic sharding configuration.
+    "HF_TOKEN": os.environ.get("HF_TOKEN_FOR_EASYDEL", ""),  # Hugging Face token.
+    "HF_DATASETS_CACHE": "/dev/shm/huggingface-dataset",  # RAM-disk for dataset cache.
+    "HF_HOME": "/dev/shm/huggingface",  # RAM-disk for model cache.
+    "HF_DATASETS_OFFLINE": "0",  # Allow online dataset access.
+    "WANDB_API_KEY": os.environ.get("WANDB_API_KEY_FOR_EASYDEL", ""),  # W&B API key.
+}
 
 # Additional pip packages to install on each Ray worker environment.
-TPU_PIP_PACKAGES = []
+PIP_PACKAGES = []
 
 # Print the environment variables for verification.
-# pprint(TPU_EXECUTION_ENV_VARS)
+pprint(EXECUTION_ENV_VARS)
 
-# # Defines the TPU environment for Ray, specifying the accelerator type and worker setup.
-# tpu_config = TpuAcceleratorConfig(
-#     "v4-64",  # Using a TPU v4 pod slice with 64 chips. Adjust to your hardware.
-#     execution_env={
-#         "env_vars": TPU_EXECUTION_ENV_VARS,
-#         "pip": TPU_PIP_PACKAGES,
-#     },
-# )
-
-
+# Defines the TPU environment for Ray, specifying the accelerator type and worker setup.
+acc_config = TpuAcceleratorConfig(
+    "v3-8",
+    execution_env={
+        "env_vars": EXECUTION_ENV_VARS,
+        "pip": PIP_PACKAGES,
+    },
+)
 
 
-
-# @execute(tpu_config)
-# @ray.remote
+@execute(acc_config)
+@ray.remote
 def main():
     """
     The main function for the distillation training process, executed as a
@@ -68,11 +65,16 @@ def main():
 
     logger = ed.utils.get_logger(__name__)
 
+    jax.distributed.initialize()
+
+    logger.info("Process count: %d, device count: %d, process index: %d",
+                jax.process_count(), jax.local_device_count(), jax.process_index())
+
     # --- Basic Training Parameters ---
     seed = 0
 
     max_length = 512
-    total_batch_size = 32
+    total_batch_size = 16
 
     num_layers = 12
     hidden_size = 768
@@ -105,7 +107,8 @@ def main():
             emb_init_scale=emb_init_scale,
             head_init_scale=0.0,
             use_qk_norm=True,
-            sharding_axis_dims=(1, jax.device_count(), 1, -1, 1),
+            sharding_axis_dims=(1, jax.process_count(), 1, -1, 1),  # FSDP
+            # sharding_axis_dims=(jax.process_count(), 1, 1, -1, 1),  # DP
             partition_axis=ed.PartitionAxis(),
             gradient_checkpointing=ed.EasyDeLGradientCheckPointers.NOTHING_SAVEABLE,
             attn_mechanism=ed.AttentionMechanisms.SDPA,
@@ -154,27 +157,27 @@ def main():
     # with jax.profiler.trace("./jax-trace", create_perfetto_link=False):
 
     # --- Streaming Dataset Setup ---
-    # informs = [
-    #     ed.TextDatasetInform(content_field="tokens", path="dvruette/nemotron-cc-65btok", split="train"),
-    #     # ed.TextDatasetInform( # sample of reading from bucket.
-    #     #     content_field="text",
-    #     #     data_files="gs://your-bucket/raw/dclm/a3b142c/**",
-    #     #     split="train",
-    #     #     path=ed.DatasetType.JSON,
-    #     # ),
-    #     # ed.TextDatasetInform(
-    #     #     content_field="content",
-    #     #     data_files="gs://your-bucket/raw/starcoderdata-720c8c/9fc30b5/**/*.parquet",
-    #     #     split="train",
-    #     # ),
-    # ]
-    # mixture = ed.DatasetMixture(batch_size=1, informs=informs)
-    # train_dataset = ed.DataManager.create_dataset_from_mixture(mixture)
+    informs = [
+        # ed.TextDatasetInform(content_field="tokens", path="dvruette/nemotron-cc-65btok", split="train"),
+        ed.TextDatasetInform( # sample of reading from bucket.
+            content_field="tokens",
+            data_files="gs://nemotron-cc_europe-west/Nemotron-CC/**/*.parquet",
+            split="train",
+        ),
+        # ed.TextDatasetInform(
+        #     content_field="content",
+        #     data_files="gs://your-bucket/raw/starcoderdata-720c8c/9fc30b5/**/*.parquet",
+        #     split="train",
+        # ),
+    ]
+    mixture = ed.DatasetMixture(batch_size=1, informs=informs)
+    train_dataset = ed.DataManager.create_dataset_from_mixture(mixture)
 
     train_dataset = load_dataset(
-        "dvruette/nemotron-cc-65btok",
+        # "dvruette/nemotron-cc-65btok",
+        "gs://nemotron-cc_europe-west/Nemotron-CC/**/*.parquet",
         split="train",
-        num_proc=32,
+        streaming=True,
     )
 
     # --- Trainer Setup and Execution ---
