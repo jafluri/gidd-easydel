@@ -193,7 +193,7 @@ def main():
 
     train_dataset = load_dataset(
         "parquet",
-        data_files="gs://nemotron-cc_europe-west/Nemotron-CC/**/*.parquet",
+        data_files="gs://nemotron-cc_europe-west4/Nemotron-CC/**/*.parquet",
         split="train",
         streaming=True,
     )
