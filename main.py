@@ -61,9 +61,7 @@ def parse_args():
 ARGS = parse_args()
 
 
-@execute(acc_config)
-@ray.remote
-def main():
+def train():
     """
     The main function for the distillation training process, executed as a
     remote task on the TPU cluster via Ray.
@@ -72,6 +70,9 @@ def main():
     # separate Ray worker process.
 
     import easydel as ed  # noqa
+
+    import random
+
     import jax
     from jax import numpy as jnp
     from transformers import AutoTokenizer
@@ -90,6 +91,7 @@ def main():
 
     # --- Basic Training Parameters ---
     seed = ARGS.seed
+    random.seed(seed)
 
     max_length = ARGS.max_seq_len
     total_batch_size = ARGS.batch_size
@@ -197,6 +199,7 @@ def main():
         split="train",
         streaming=True,
     )
+    train_dataset = train_dataset.shuffle(seed=random.randint(0, 2**32 - 1))
 
     # --- Trainer Setup and Execution ---
     trainer = DiffusionTrainer(
@@ -212,6 +215,19 @@ def main():
 
     logger.info("Starting training...")
     trainer.train()
+
+
+@execute(acc_config)
+@ray.remote
+def main():
+    try:
+        train()
+    except Exception as e:
+        import traceback
+        print("An error occurred during training:")
+        traceback.print_exc()
+        raise e
+
 
 if __name__ == "__main__":
     out = main()
