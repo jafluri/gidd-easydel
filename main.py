@@ -76,6 +76,8 @@ def main():
     from diffusion_trainer import DiffusionTrainer, DiffusionConfig
     
     # jax.config.update('jax_disable_jit', True)
+    args = parse_args()
+    pprint(args)
 
     logger = ed.utils.get_logger(__name__)
 
@@ -208,5 +210,4 @@ def main():
     trainer.train()
 
 if __name__ == "__main__":
-    args = parse_args()
-    out = main(args)
+    out = main()
