@@ -57,6 +57,8 @@ def parse_args():
     parser.add_argument("--resid_scale", type=float, default=4.0, help="Scale for residual connections.")
     return parser.parse_args()
 
+ARGS = parse_args()
+
 
 @execute(acc_config)
 @ray.remote
@@ -76,8 +78,7 @@ def main():
     from diffusion_trainer import DiffusionTrainer, DiffusionConfig
     
     # jax.config.update('jax_disable_jit', True)
-    args = parse_args()
-    pprint(args)
+    pprint(ARGS)
 
     logger = ed.utils.get_logger(__name__)
 
@@ -87,17 +88,17 @@ def main():
     # --- Basic Training Parameters ---
     seed = 0
 
-    max_length = args.max_seq_len
-    total_batch_size = args.batch_size
+    max_length = ARGS.max_seq_len
+    total_batch_size = ARGS.batch_size
 
-    num_layers = args.num_layers
-    hidden_size = args.hidden_size
-    head_dim = args.head_dim
+    num_layers = ARGS.num_layers
+    hidden_size = ARGS.hidden_size
+    head_dim = ARGS.head_dim
 
-    lr = args.lr / hidden_size**0.5
-    init_scale = args.init_scale
-    emb_init_scale = args.emb_init_scale
-    resid_scale = args.resid_scale
+    lr = ARGS.lr / hidden_size**0.5
+    init_scale = ARGS.init_scale
+    emb_init_scale = ARGS.emb_init_scale
+    resid_scale = ARGS.resid_scale
 
     # lr = 5e-4
     # init_scale = 0.02
