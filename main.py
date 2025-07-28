@@ -211,7 +211,7 @@ def train():
         seed=seed,
     )
 
-    # trainer.memory_monitor.start_monitoring()
+    trainer.memory_monitor.start_monitoring()
 
     logger.info("Starting training...")
     trainer.train()
