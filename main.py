@@ -46,6 +46,7 @@ acc_config = TpuAcceleratorConfig(
 
 def parse_args():
     parser = argparse.ArgumentParser(description="Run the diffusion training process.")
+    parser.add_argument("--seed", type=int, default=0, help="Random seed for reproducibility.")
     parser.add_argument("--max_seq_len", type=int, default=512, help="Maximum sequence length for the model.")
     parser.add_argument("--batch_size", type=int, default=16, help="Total batch size for training.")
     parser.add_argument("--num_layers", type=int, default=12, help="Number of layers in the model.")
@@ -69,6 +70,7 @@ def main():
     """
     # Imports are inside the function to ensure they are available in the
     # separate Ray worker process.
+
     import easydel as ed  # noqa
     import jax
     from jax import numpy as jnp
@@ -78,6 +80,7 @@ def main():
     from diffusion_trainer import DiffusionTrainer, DiffusionConfig
     
     # jax.config.update('jax_disable_jit', True)
+
     pprint(ARGS)
 
     logger = ed.utils.get_logger(__name__)
@@ -86,7 +89,7 @@ def main():
                 jax.process_count(), jax.local_device_count(), jax.process_index())
 
     # --- Basic Training Parameters ---
-    seed = 0
+    seed = ARGS.seed
 
     max_length = ARGS.max_seq_len
     total_batch_size = ARGS.batch_size
