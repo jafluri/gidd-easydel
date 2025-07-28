@@ -155,28 +155,28 @@ def main():
     # with jax.profiler.trace("./jax-trace", create_perfetto_link=False):
 
     # --- Streaming Dataset Setup ---
-    # informs = [
-    #     # ed.TextDatasetInform(content_field="tokens", path="dvruette/nemotron-cc-65btok", split="train"),
-    #     ed.TextDatasetInform( # sample of reading from bucket.
-    #         content_field="tokens",
-    #         data_files="gs://nemotron-cc_europe-west/Nemotron-CC/**/*.parquet",
-    #         split="train",
-    #     ),
-    #     # ed.TextDatasetInform(
-    #     #     content_field="content",
-    #     #     data_files="gs://your-bucket/raw/starcoderdata-720c8c/9fc30b5/**/*.parquet",
-    #     #     split="train",
-    #     # ),
-    # ]
-    # mixture = ed.DatasetMixture(batch_size=1, informs=informs)
-    # train_dataset = ed.DataManager.create_dataset_from_mixture(mixture)
+    informs = [
+        # ed.TextDatasetInform(content_field="tokens", path="dvruette/nemotron-cc-65btok", split="train"),
+        ed.TextDatasetInform( # sample of reading from bucket.
+            content_field="tokens",
+            data_files="/local/home/dvruette/nemotron_tokenized/**/*.parquet",
+            split="train",
+        ),
+        # ed.TextDatasetInform(
+        #     content_field="content",
+        #     data_files="gs://your-bucket/raw/starcoderdata-720c8c/9fc30b5/**/*.parquet",
+        #     split="train",
+        # ),
+    ]
+    mixture = ed.DatasetMixture(batch_size=1, informs=informs)
+    train_dataset = ed.DataManager.create_dataset_from_mixture(mixture)
 
-    train_dataset = load_dataset(
-        "dvruette/nemotron-cc-65btok",
-        # "gs://nemotron-cc_europe-west/Nemotron-CC/**/*.parquet",
-        split="train",
-        streaming=True,
-    )
+    # train_dataset = load_dataset(
+    #     "dvruette/nemotron-cc-65btok",
+    #     # "gs://nemotron-cc_europe-west/Nemotron-CC/**/*.parquet",
+    #     split="train",
+    #     streaming=True,
+    # )
 
     # --- Trainer Setup and Execution ---
     trainer = DiffusionTrainer(

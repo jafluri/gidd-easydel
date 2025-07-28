@@ -159,7 +159,7 @@ def main():
         # ed.TextDatasetInform(content_field="tokens", path="dvruette/nemotron-cc-65btok", split="train"),
         ed.TextDatasetInform( # sample of reading from bucket.
             content_field="tokens",
-            data_files="gs://nemotron-cc_europe-west/Nemotron-CC/**/*.parquet",
+            data_files="gs://nemotron-cc_europe-west4/Nemotron-CC/**/*.parquet",
             split="train",
         ),
         # ed.TextDatasetInform(
