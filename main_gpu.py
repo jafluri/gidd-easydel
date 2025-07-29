@@ -5,11 +5,11 @@ from pprint import pprint
 
 SAVE_DIRECTORY = os.environ.get("SAVE_DIRECTORY", "outputs/diffusion_trainer")
 
-# --- Configuration Constants ---
 TOKENIZER_ID = "dvruette/nemotron-cc-bpe"
 
-# Your Weights & Biases entity (username or organization) for experiment logging.
 WANDB_ENTITY = os.environ.get("WANDB_ENTITY", None)
+
+DATA_FILES = os.environ.get("DATA_FILES", "/local/home/dvruette/nemotron_tokenized/**/*.parquet")
 
 
 def parse_args():
@@ -24,161 +24,31 @@ def parse_args():
     parser.add_argument("--init_scale", type=float, default=0.4, help="Initial scale for model parameters.")
     parser.add_argument("--emb_init_scale", type=float, default=0.1, help="Initial scale for embedding parameters.")
     parser.add_argument("--resid_scale", type=float, default=4.0, help="Scale for residual connections.")
+    parser.add_argument("--tokenizer_id", type=str, default="dvruette/nemotron-cc-bpe", help="Tokenizer ID for the model.")
+    parser.add_argument("--save_directory", type=str, default=SAVE_DIRECTORY, help="Directory to save model checkpoints.")
+    parser.add_argument("--wandb_entity", type=str, default=WANDB_ENTITY, help="Weights & Biases entity for logging.")
+    parser.add_argument("--data_files", type=str, default=DATA_FILES, help="Path to training data files.")
     return parser.parse_args()
-
-ARGS = parse_args()
 
 
 def main():
     """
-    The main function for the distillation training process, executed as a
-    remote task on the TPU cluster via Ray.
+    The main function for the training process.
     """
     # Imports are inside the function to ensure they are available in the
     # separate Ray worker process.
+    from train import train  # noqa
 
-    import easydel as ed  # noqa
-    import jax
-    from jax import numpy as jnp
-    from transformers import AutoTokenizer
-    from datasets import load_dataset
+    try:
+        args = parse_args()
+        pprint(args)
+        train(args)
+    except Exception as e:
+        import traceback
+        print("An error occurred during training:")
+        traceback.print_exc()
+        raise e
 
-    from diffusion_trainer import DiffusionTrainer, DiffusionConfig
-    
-    # jax.config.update('jax_disable_jit', True)
-
-    pprint(ARGS)
-
-    logger = ed.utils.get_logger(__name__)
-
-    # logger.info("Process count: %d, device count: %d, process index: %d",
-    #             jax.process_count(), jax.local_device_count(), jax.process_index())
-
-    # --- Basic Training Parameters ---
-    seed = ARGS.seed
-
-    max_length = ARGS.max_seq_len
-    total_batch_size = ARGS.batch_size
-
-    num_layers = ARGS.num_layers
-    hidden_size = ARGS.hidden_size
-    head_dim = ARGS.head_dim
-
-    lr = ARGS.lr / hidden_size**0.5
-    init_scale = ARGS.init_scale
-    emb_init_scale = ARGS.emb_init_scale
-    resid_scale = ARGS.resid_scale
-
-    # lr = 5e-4
-    # init_scale = 0.02
-    # emb_init_scale = 0.02
-    # resid_scale = num_layers
-
-    tokenizer = AutoTokenizer.from_pretrained(TOKENIZER_ID)
-
-    # --- Model Definition ---
-    model = ed.GiddForDiffusionLM(
-        config=ed.GiddConfig(
-            vocab_size=len(tokenizer),
-            hidden_size=hidden_size,
-            intermediate_size=4*hidden_size,
-            num_hidden_layers=num_layers,
-            num_attention_heads=hidden_size // head_dim,
-            head_dim=head_dim,
-            max_position_embeddings=max_length,
-            resid_scale=resid_scale,
-            init_scale=init_scale,
-            emb_init_scale=emb_init_scale,
-            head_init_scale=0.0,
-            use_qk_norm=True,
-            sharding_axis_dims=(1, jax.process_count(), 1, -1, 1),  # FSDP
-            # sharding_axis_dims=(-1, 1, 1, 1, 1),  # DP
-            # sharding_axis_dims=(1, 1, 1, -1, 1),  # TP
-            partition_axis=ed.PartitionAxis(),
-            gradient_checkpointing=ed.EasyDeLGradientCheckPointers.NOTHING_SAVEABLE,
-            attn_mechanism=ed.AttentionMechanisms.SDPA,
-            attn_dtype=jnp.bfloat16,
-            attention_bias=False,
-            mlp_bias=True,
-            # scan_layers=True,
-        ),
-        dtype=jnp.bfloat16,
-        param_dtype=jnp.bfloat16,
-        precision=jax.lax.Precision.DEFAULT,
-        rngs=ed.Rngs(0),
-    ).shard_model()  # Shard the newly created model across devices.
-
-    # --- Configuration ---
-    arguments = DiffusionConfig(
-        num_train_epochs=1,
-        total_batch_size=total_batch_size,
-        use_wandb=True,
-        wandb_entity=WANDB_ENTITY,
-        do_last_save=True,
-        max_sequence_length=max_length,
-        # This is MANDATORY for streaming datasets. It tells the trainer how many
-        # steps constitute one "epoch". Should be ~ (total_dataset_size // total_batch_size).
-        per_epoch_training_steps=98_000_000,
-        learning_rate=lr,
-        learning_rate_end=0.1 * lr,
-        optimizer=ed.EasyDeLOptimizers.ADAMW,
-        scheduler=ed.EasyDeLSchedulers.COSINE,
-        warmup_steps=2000,
-        weight_decay=0.02,
-        save_directory=SAVE_DIRECTORY,
-        save_steps=1_000,
-        save_total_limit=0,
-        save_optimizer_state=False,
-        clip_grad=1.0,
-        report_steps=50,
-        log_steps=10,
-        progress_bar_type="json",
-        track_memory=True,
-        use_grain=False,
-    )
-
-    # pprint(jax.tree.map(lambda x: x.shape if hasattr(x, "shape") else x, model.parameters))
-
-    # with jax.profiler.trace("./jax-trace", create_perfetto_link=False):
-
-    # --- Streaming Dataset Setup ---
-    # informs = [
-    #     # ed.TextDatasetInform(content_field="tokens", path="dvruette/nemotron-cc-65btok", split="train"),
-    #     ed.TextDatasetInform( # sample of reading from bucket.
-    #         content_field="tokens",
-    #         data_files="/local/home/dvruette/nemotron_tokenized/**/*.parquet",
-    #         split="train",
-    #     ),
-    #     # ed.TextDatasetInform(
-    #     #     content_field="content",
-    #     #     data_files="gs://your-bucket/raw/starcoderdata-720c8c/9fc30b5/**/*.parquet",
-    #     #     split="train",
-    #     # ),
-    # ]
-    # mixture = ed.DatasetMixture(batch_size=1, informs=informs)
-    # train_dataset = ed.DataManager.create_dataset_from_mixture(mixture)
-
-    train_dataset = load_dataset(
-        "parquet",
-        data_files="/local/home/dvruette/nemotron_tokenized/**/*.parquet",
-        split="train",
-        streaming=True,
-    )
-
-    # --- Trainer Setup and Execution ---
-    trainer = DiffusionTrainer(
-        arguments=arguments,
-        model=model,
-        tokenizer=tokenizer,
-        train_dataset=train_dataset,
-        eval_dataset=None,
-        seed=seed,
-    )
-
-    # trainer.memory_monitor.start_monitoring()
-
-    logger.info("Starting training...")
-    trainer.train()
 
 if __name__ == "__main__":
     out = main()
