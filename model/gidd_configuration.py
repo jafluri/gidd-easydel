@@ -104,6 +104,8 @@ class GiddConfig(EasyDeLBaseConfig):
         num_hidden_layers: int = 12,
         num_attention_heads: int = 12,
         head_dim: tp.Optional[int] = None,
+        is_causal: bool = False,
+        attn_soft_cap: float = 30.0,
         max_position_embeddings: int = 1024,
         resid_scale: float = 4.0,
         rms_norm_eps: float = 1e-6,
@@ -112,6 +114,7 @@ class GiddConfig(EasyDeLBaseConfig):
         init_scale: float = 0.4,
         emb_init_scale: float = 0.1,
         head_init_scale: float = 0.0,
+        weight_scaling: str = "fan_in",
         bos_token_id: int = 0,
         eos_token_id: int = 1,
         rope_theta: float = 10000.0,
@@ -126,18 +129,29 @@ class GiddConfig(EasyDeLBaseConfig):
         scan_layers: bool = False,
         **kwargs,
     ):
+        super().__init__(
+            tie_word_embeddings=tie_word_embeddings,
+            bos_token_id=bos_token_id,
+            eos_token_id=eos_token_id,
+            scan_mlp_chunk_size=scan_mlp_chunk_size,
+            bits=bits,
+            **kwargs,
+        )
         self.vocab_size = vocab_size
 
         self.hidden_size = hidden_size
-        self.init_scale = init_scale
-        self.emb_init_scale = emb_init_scale
-        self.head_init_scale = head_init_scale
         self.intermediate_size = intermediate_size
         self.num_hidden_layers = num_hidden_layers
         self.rope_theta = rope_theta
         self.num_attention_heads = num_attention_heads
+        self.attn_soft_cap = attn_soft_cap
+        self.is_causal = is_causal
         self.max_position_embeddings = max_position_embeddings
         self.resid_scale = resid_scale
+        self.init_scale = init_scale
+        self.emb_init_scale = emb_init_scale
+        self.head_init_scale = head_init_scale
+        self.weight_scaling = weight_scaling
         self.rms_norm_eps = rms_norm_eps
         self.use_qk_norm = use_qk_norm
         self.qk_norm_eps = qk_norm_eps
@@ -151,13 +165,6 @@ class GiddConfig(EasyDeLBaseConfig):
         self.scan_layers = scan_layers
         self.head_dim = (
             head_dim if head_dim is not None else hidden_size // num_attention_heads
-        )
-        super().__init__(
-            bos_token_id=bos_token_id,
-            eos_token_id=eos_token_id,
-            scan_mlp_chunk_size=scan_mlp_chunk_size,
-            bits=bits,
-            **kwargs,
         )
 
     def get_partition_rules(self, *args, **kwargs):

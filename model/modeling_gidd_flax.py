@@ -70,7 +70,7 @@ class GiddMLP(nn.Module):
         self.precision = precision
         linear_class = partial(
             ParallelLinear,
-            scale="fan_in",
+            scale=config.weight_scaling,
             dtype=dtype,
             param_dtype=param_dtype,
             use_bias=self.config.mlp_bias,
@@ -118,23 +118,28 @@ class GiddAttention(AttentionModule):
         self.hidden_size = config.hidden_size
         head_dim = config.hidden_size // config.num_attention_heads
         self.head_dim = getattr(config, "head_dim", head_dim)
+        self.num_attention_heads = self.hidden_size // self.head_dim
+        self.is_causal = config.is_causal
 
         self.use_qk_norm = config.use_qk_norm
         self.qk_norm_eps = config.qk_norm_eps
         if self.use_qk_norm:
-            self.qk_scale = nn.Param(
-                jnp.full(
-                    (1, 1, self.config.num_attention_heads, 1),
-                    2 * jnp.log(config.max_position_embeddings),
-                    dtype=self.param_dtype,
-                ),
-            )
+            # self.qk_scale = nn.Param(
+            #     jnp.full(
+            #         (1, 1, self.num_attention_heads, 1),
+            #         2 * jnp.log(config.max_position_embeddings),
+            #         dtype=self.param_dtype,
+            #     ),
+            # )
+            self.qk_scale = 1.0
+            self.q_norm = GiddRMSNorm(config, dtype=dtype, param_dtype=jnp.float32)
+            self.k_norm = GiddRMSNorm(config, dtype=dtype, param_dtype=jnp.float32)
         else:
             self.qk_scale = 1.0
 
         linear_class = partial(
             ParallelLinear,
-            scale="fan_in",
+            scale=config.weight_scaling,
             dtype=dtype,
             param_dtype=param_dtype,
             use_bias=config.attention_bias,
@@ -143,23 +148,23 @@ class GiddAttention(AttentionModule):
             **get_dot_general_by_bits(config.bits, config.easy_method),
         )
         self.q_proj = linear_class(
-            config.hidden_size,
-            config.num_attention_heads * self.head_dim,
+            self.hidden_size,
+            self.num_attention_heads * self.head_dim,
             rngs=rngs,
         )
         self.k_proj = linear_class(
-            config.hidden_size,
-            config.num_attention_heads * self.head_dim,
+            self.hidden_size,
+            self.num_attention_heads * self.head_dim,
             rngs=rngs,
         )
         self.v_proj = linear_class(
-            config.hidden_size,
-            config.num_attention_heads * self.head_dim,
+            self.hidden_size,
+            self.num_attention_heads * self.head_dim,
             rngs=rngs,
         )
         self.o_proj = linear_class(
-            config.num_attention_heads * self.head_dim,
-            config.hidden_size,
+            self.num_attention_heads * self.head_dim,
+            self.hidden_size,
             rngs=rngs,
         )
 
@@ -172,8 +177,11 @@ class GiddAttention(AttentionModule):
 
         self.attention_performer = FlexibleAttentionModule(
             base_config=self.config,
-            softmax_scale=1.0 if self.use_qk_norm else 1.0 / self.head_dim**0.5,
+            softmax_scale=self.head_dim**-0.5,
+            # softmax_scale=1.0 if self.use_qk_norm else self.head_dim**-0.5,
             dropout_prob=0.0,
+            soft_cap=self.config.attn_soft_cap,
+            rngs=rngs,
         )
 
         
@@ -245,8 +253,10 @@ class GiddAttention(AttentionModule):
             self.v_proj(hidden_states),
         )
         if self.use_qk_norm:
-            query_states = self._norm(query_states)
-            key_states = self._norm(key_states)
+            query_states = self.q_norm(query_states)
+            key_states = self.k_norm(key_states)
+            # query_states = self._norm(query_states)
+            # key_states = self._norm(key_states)
 
         qshape = (
             batch_size,
@@ -298,21 +308,25 @@ class GiddAttention(AttentionModule):
             value_states=value_states,
             mode=mode,
             bias=None,
-            cache_metadata=cache_metadata,
-            cache_view=cache_view,
-            init_bias=init_attention_bias,
-            attention_mask=attention_mask,
-            segment_ids=segment_ids,
-            causal=False,
+            # cache_metadata=cache_metadata,
+            # cache_view=cache_view,
+            # init_bias=init_attention_bias,
+            # attention_mask=attention_mask,
+            # segment_ids=segment_ids,
+            causal=self.is_causal,
         )
         attn_output = self.o_proj(
             self.shard_attention_prod(
                 attn_output=self._merge_heads(attentions.attention_outputs)
             )
         )
+
+        # jax.debug.breakpoint()
+
         return AttentionLayerOutput(
             attention_output=attn_output,
             attention_weight=attentions.attention_weights if output_attentions else None,
+            attention_logits=attentions.attention_logits if output_attentions else None,
             cache_view=cache_view,
         )
 
@@ -329,6 +343,7 @@ class GiddRMSNorm(nn.Module):
         self.dtype = dtype
         self.param_dtype = param_dtype
         self.kernel = nn.Param(jnp.zeros(self.config.hidden_size, dtype=param_dtype))
+        # self.bias = nn.Param(jnp.zeros(self.config.hidden_size, dtype=param_dtype))
 
     def __call__(self, hidden_states):
         variance = hidden_states.astype(jnp.float32)
@@ -336,9 +351,9 @@ class GiddRMSNorm(nn.Module):
         variance = variance.mean(-1, keepdims=True)
         hidden_states = hidden_states / jnp.sqrt(variance + self.epsilon)
 
-        return (1 + self.kernel.value.astype(self.dtype)) * jnp.asarray(
-            hidden_states, dtype=self.dtype
-        )
+        return (
+            (1 + self.kernel.value) * hidden_states #+ self.bias.value
+        ).astype(self.dtype)
 
 
 class GiddLayer(nn.Module):
@@ -380,12 +395,12 @@ class GiddLayer(nn.Module):
             precision=precision,
             rngs=rngs,
         )
-        self.input_layernorm = GiddRMSNorm(
+        self.attn_layernorm = GiddRMSNorm(
             config=config,
             dtype=dtype,
             param_dtype=jnp.float32,
         )
-        self.post_attention_layernorm = GiddRMSNorm(
+        self.mlp_layernorm = GiddRMSNorm(
             config=config,
             dtype=dtype,
             param_dtype=jnp.float32,
@@ -405,31 +420,30 @@ class GiddLayer(nn.Module):
         frequencies: tp.Optional[chex.Array] = None,
     ):
         attn_outputs = self.self_attn(
-            self.input_layernorm(hidden_states),
-            attention_mask,
-            noise_mask,
-            position_ids,
-            mode,
-            cache_view,
-            cache_metadata,
-            segment_ids,
-            output_attentions,
-            frequencies,
+            self.attn_layernorm(hidden_states),
+            attention_mask=attention_mask,
+            noise_mask=noise_mask,
+            position_ids=position_ids,
+            mode=mode,
+            cache_view=cache_view,
+            cache_metadata=cache_metadata,
+            segment_ids=segment_ids,
+            output_attentions=output_attentions,
+            frequencies=frequencies,
         )
         hidden_states = hidden_states + self.resid_scale * attn_outputs.attention_output
 
-        feed_forward_input = self.post_attention_layernorm(hidden_states)
-
+        mlp_input = self.mlp_layernorm(hidden_states)
         if self.config.use_scan_mlp:
-            feed_forward_hidden_states = block_wise_ffn(
+            mlp_output = block_wise_ffn(
                 self.mlp,
-                feed_forward_input,
+                mlp_input,
                 self.config.scan_mlp_chunk_size,
             )
         else:
-            feed_forward_hidden_states = self.mlp(feed_forward_input)
+            mlp_output = self.mlp(mlp_input)
 
-        hidden_states = hidden_states + self.resid_scale * feed_forward_hidden_states
+        hidden_states = hidden_states + self.resid_scale * mlp_output
         hidden_states = apply_logical_sharding(
             hidden_states,
             dynamic_axes=common_types.HiddenStateSharding,
@@ -438,6 +452,7 @@ class GiddLayer(nn.Module):
         return DecoderLayerOutput(
             hidden_states=hidden_states,
             attention_weight=attn_outputs.attention_weight,
+            attention_logits=attn_outputs.attention_logits,
             cache_view=attn_outputs.cache_view,
         )
 
@@ -545,6 +560,7 @@ class GiddModel(EasyDeLBaseModule):
         batch_size, sequence_length, _ = inputs_embeds.shape
 
         all_attentions = () if output_attentions else None
+        all_attention_logits = () if output_attentions else None
         all_hidden_states = () if output_hidden_states else None
         assert sequence_length <= self.config.max_position_embeddings, (
             f"Maximum Position Embedding Reached ! (Excepted <= {self.config.max_position_embeddings} got {sequence_length})"
@@ -595,6 +611,7 @@ class GiddModel(EasyDeLBaseModule):
 
             if output_attentions:
                 all_attentions += (layer_outputs.attention_weight,)
+                all_attention_logits += (layer_outputs.attention_logits,)
 
             past_key_values[idx] = layer_outputs.cache_view
 
@@ -607,6 +624,7 @@ class GiddModel(EasyDeLBaseModule):
             last_hidden_state=hidden_states,
             hidden_states=all_hidden_states,
             attentions=all_attentions,
+            attention_logits=all_attention_logits,
             past_key_values=past_key_values,
         )
 
@@ -712,6 +730,7 @@ class GiddForDiffusionLM(EasyDeLBaseModule):
             segment_ids=segment_ids,
         )
 
+
         hidden_states = outputs.last_hidden_state
 
         hidden_states = apply_logical_sharding(
@@ -733,5 +752,6 @@ class GiddForDiffusionLM(EasyDeLBaseModule):
             logits=lm_logits,
             hidden_states=outputs.hidden_states,
             attentions=outputs.attentions,
+            attention_logits=outputs.attention_logits,
             past_key_values=outputs.past_key_values,
         )
