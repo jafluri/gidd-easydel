@@ -109,8 +109,10 @@ class DiffusionTrainer(Trainer):
 
         noise_mask = self._sample_noise_mask(noise_key, shape)
         log_snr = self._sample_log_snr(snr_key, shape)
-        log_snr = noise_mask * log_snr
+        log_snr = jnp.where(noise_mask, log_snr, self.arguments.max_log_snr)
+
         input_ids = self.mixing_schedule.sample_marginals(marginal_key, log_snr, labels)
+        input_ids = jnp.where(noise_mask, input_ids, labels)
 
         batch["input_ids"] = input_ids
         batch["labels"] = labels
