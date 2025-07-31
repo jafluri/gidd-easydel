@@ -54,6 +54,8 @@ def parse_args():
     parser.add_argument("--init_scale", type=float, default=0.4, help="Initial scale for model parameters.")
     parser.add_argument("--emb_init_scale", type=float, default=0.1, help="Initial scale for embedding parameters.")
     parser.add_argument("--resid_scale", type=float, default=4.0, help="Scale for residual connections.")
+    parser.add_argument("--hybrid_mixing_scale", type=float, default=1.0, help="Scale for hybrid mixing schedule.")
+    parser.add_argument("--hybrid_mixing_shift", type=float, default=0.0, help="Shift for hybrid mixing schedule.")
     parser.add_argument("--tokenizer_id", type=str, default="dvruette/nemotron-cc-bpe", help="Tokenizer ID for the model.")
     parser.add_argument("--save_directory", type=str, default=SAVE_DIRECTORY, help="Directory to save model checkpoints.")
     parser.add_argument("--wandb_entity", type=str, default=WANDB_ENTITY, help="Weights & Biases entity for logging.")
