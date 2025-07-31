@@ -5,3 +5,4 @@ __pycache__
 .coverage
 wandb
 outputs
+.ipynb_checkpoints
