@@ -46,9 +46,9 @@ def parse_args():
     parser = argparse.ArgumentParser(description="Run the diffusion training process.")
     parser.add_argument("--seed", type=int, default=0, help="Random seed for reproducibility.")
     parser.add_argument("--max_seq_len", type=int, default=512, help="Maximum sequence length for the model.")
-    parser.add_argument("--batch_size", type=int, default=16, help="Total batch size for training.")
-    parser.add_argument("--num_layers", type=int, default=12, help="Number of layers in the model.")
-    parser.add_argument("--hidden_size", type=int, default=768, help="Hidden size of the model.")
+    parser.add_argument("--batch_size", type=int, default=8, help="Total batch size for training.")
+    parser.add_argument("--num_layers", type=int, default=8, help="Number of layers in the model.")
+    parser.add_argument("--hidden_size", type=int, default=512, help="Hidden size of the model.")
     parser.add_argument("--head_dim", type=int, default=64, help="Dimension of each attention head.")
     parser.add_argument("--lr", type=float, default=0.75, help="Learning rate for the optimizer.")
     parser.add_argument("--init_scale", type=float, default=0.4, help="Initial scale for model parameters.")
@@ -61,6 +61,8 @@ def parse_args():
     parser.add_argument("--wandb_entity", type=str, default=WANDB_ENTITY, help="Weights & Biases entity for logging.")
     parser.add_argument("--data_files", type=str, default=DATA_FILES, help="Path to training data files.")
     return parser.parse_args()
+
+ARGS = parse_args()
 
 
 @execute(acc_config)
@@ -75,9 +77,8 @@ def main():
     from train import train  # noqa
 
     try:
-        args = parse_args()
-        pprint(args)
-        train(args)
+        pprint(ARGS)
+        train(ARGS)
     except Exception as e:
         import traceback
         print("An error occurred during training:")
