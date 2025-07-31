@@ -32,7 +32,7 @@ class GiddLoss(nn.Module):
         loss_weights = aux["loss_weights"].clip(0, 1e3)
         
         logits = logits.at[..., self.mask_token_id].set(-1e6)  # Mask out the logits for the mask token.
-        x_hat = nn.softmax(logits, axis=-1)
+        x_hat = nn.softmax(logits.astype("f4"), axis=-1).astype(logits.dtype)
 
         log_p_t = self.mixing_schedule.marginal_log_probs(log_snr, x_hat)
         log_q_t = self.mixing_schedule.marginal_log_probs_from_ids(log_snr, labels)
