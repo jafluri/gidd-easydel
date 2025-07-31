@@ -7,6 +7,7 @@ import jax
 import jax.profiler
 import jax.numpy as jnp
 import optax
+import wandb
 from eformer.escale import with_sharding_constraint
 from jax.sharding import PartitionSpec
 
@@ -29,10 +30,15 @@ def compute_loss(loss_fn, state, tree, minibatch) -> tuple[chex.Array, LossMetri
         input_ids=input_ids,
         inputs_embeds=minibatch.get("inputs_embeds", None),
         attention_mask=attention_mask,
-        log_snr=log_snr,
-        noise_mask=noise_mask,
+        # log_snr=log_snr,
+        # noise_mask=noise_mask,
+        output_attentions=True,
     )
     logits = outputs.logits
+
+    # jax.debug.breakpoint()
+
+    # jax.debug.print("Attn entropies: {x}", x=attn_entropies)
 
     loss_mask = attention_mask & noise_mask
 
@@ -43,6 +49,17 @@ def compute_loss(loss_fn, state, tree, minibatch) -> tuple[chex.Array, LossMetri
         log_snr=log_snr,
         return_aux=True,
     )
+
+    for i, (attn, logits) in enumerate(zip(outputs.attentions, outputs.attention_logits)):
+        if attn is not None:
+            attn_entropy = jnp.mean(jax.scipy.special.entr(attn).sum(-1))
+            attn_max = jax.numpy.max(attn)
+            attn_max_logit = jax.numpy.max(logits)
+            attn_median_logit = jax.numpy.median(logits)
+            metrics[f"attn/layer.{i}.attn_entropy"] = attn_entropy
+            metrics[f"attn/layer.{i}.attn_max"] = attn_max
+            metrics[f"attn/layer.{i}.max_logit"] = attn_max_logit
+            metrics[f"attn/layer.{i}.median_logit"] = attn_median_logit
 
     # Apply mask and compute normalized loss/metrics
     if loss_mask is not True:
@@ -66,6 +83,20 @@ def compute_loss(loss_fn, state, tree, minibatch) -> tuple[chex.Array, LossMetri
         metrics = {k: v.mean() for k, v in metrics.items()}
         metrics["num_tokens"] = jnp.prod(jnp.array(loss.shape))
 
+    # # No mask - compute mean directly
+    # loss = loss.mean()
+    # metrics = {k: v.mean() for k, v in metrics.items()}
+    # metrics["num_tokens"] = jnp.prod(jnp.array(loss.shape))
+
+    # import optax
+    # loss = optax.softmax_cross_entropy_with_integer_labels(
+    #     logits=logits,
+    #     labels=labels,
+    # ).mean()
+    # metrics = {}
+
+    # jax.lax.cond(loss < 6, jax.debug.breakpoint, lambda: None)
+
     return loss, LossMetrics(
         loss=loss,
         other_metrics=metrics,
@@ -82,6 +113,7 @@ def training_step(
     gradient_accumulation_steps: int = 1,
     is_training: bool = True,
 ) -> tuple[EasyDeLState, LossMetrics]:
+    import jax
     # Determine batch size, minibatch size, and enforce partition spec.
     batch_size, minibatch_size, partition_spec = make_assertions_and_get_sizes(
         batch=batch,
@@ -100,6 +132,26 @@ def training_step(
             minibatch_size=minibatch_size,
             grad_fn=jax.value_and_grad(_compute_loss, has_aux=True),
         )
+
+        # min_grad_norm = jax.tree_util.tree_reduce(
+        #     jnp.minimum,
+        #     jax.tree_util.tree_map(jnp.linalg.norm, gradients),
+        # )
+        # jax.lax.cond(
+        #     min_grad_norm < 1e-10,
+        #     jax.debug.breakpoint,
+        #     lambda: None,
+        # )
+
+        # def start_debugger():
+        #     import debugpy
+        #     debugpy.breakpoint()
+        #     # pdb.set_trace()
+        #     print("Debugger")
+        # # open python debugger inside jax.debug
+        # jax.debug.callback(
+        #     start_debugger
+        # )
         # Update state using the computed gradients and updated metrics.
         state = update_state_respectfully(
             state=state,
