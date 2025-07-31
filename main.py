@@ -50,7 +50,7 @@ def parse_args():
     parser.add_argument("--num_layers", type=int, default=8, help="Number of layers in the model.")
     parser.add_argument("--hidden_size", type=int, default=512, help="Hidden size of the model.")
     parser.add_argument("--head_dim", type=int, default=64, help="Dimension of each attention head.")
-    parser.add_argument("--lr", type=float, default=0.75, help="Learning rate for the optimizer.")
+    parser.add_argument("--lr", type=float, default=0.1, help="Learning rate for the optimizer.")
     parser.add_argument("--init_scale", type=float, default=0.4, help="Initial scale for model parameters.")
     parser.add_argument("--emb_init_scale", type=float, default=0.1, help="Initial scale for embedding parameters.")
     parser.add_argument("--resid_scale", type=float, default=4.0, help="Scale for residual connections.")
