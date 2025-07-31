@@ -96,8 +96,8 @@ def train(args):
             weight_scaling="fan_in",
             # weight_scaling=1.0,
             use_qk_norm=True,
-            # sharding_axis_dims=(1, jax.process_count(), 1, -1, 1),  # FSDP
-            sharding_axis_dims=(-1, 1, 1, 1, 1),  # DP
+            sharding_axis_dims=(1, jax.process_count(), 1, -1, 1),  # FSDP
+            # sharding_axis_dims=(-1, 1, 1, 1, 1),  # DP
             # sharding_axis_dims=(1, 1, 1, -1, 1),  # TP
             partition_axis=ed.PartitionAxis(),
             gradient_checkpointing=ed.EasyDeLGradientCheckPointers.NOTHING_SAVEABLE,
