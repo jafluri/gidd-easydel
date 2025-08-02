@@ -49,6 +49,8 @@ def prepare_batch(
 
 
 def compute_loss(loss_fn, state, tree, minibatch) -> tuple[chex.Array, LossMetrics]:
+    import jax
+    import jax.numpy as jnp
     input_ids = minibatch.get("input_ids", None)
     labels = minibatch.get("labels", None)
     log_snr = minibatch.get("log_snr", None)
@@ -76,12 +78,12 @@ def compute_loss(loss_fn, state, tree, minibatch) -> tuple[chex.Array, LossMetri
         return_aux=True,
     )
 
-    for i, (attn, logits) in enumerate(zip(outputs.attentions, outputs.attention_logits)):
+    for i, (attn, logs) in enumerate(zip(outputs.attentions, outputs.attention_logits)):
         if attn is not None:
             attn_entropy = jnp.mean(jax.scipy.special.entr(attn).sum(-1))
             attn_max = jax.numpy.max(attn)
-            attn_max_logit = jax.numpy.max(logits)
-            attn_median_logit = jax.numpy.median(logits)
+            attn_max_logit = jax.numpy.max(logs)
+            attn_median_logit = jax.numpy.median(logs)
             metrics[f"attn/layer.{i}.attn_entropy"] = attn_entropy
             metrics[f"attn/layer.{i}.attn_max"] = attn_max
             metrics[f"attn/layer.{i}.max_logit"] = attn_max_logit
@@ -131,6 +133,8 @@ def training_step(
     gradient_accumulation_steps: int = 1,
     is_training: bool = True,
 ) -> tuple[EasyDeLState, LossMetrics]:
+    import jax
+    import jax.numpy as jnp
     # Determine batch size, minibatch size, and enforce partition spec.
     batch_size, minibatch_size, partition_spec = make_assertions_and_get_sizes(
         batch=batch,
@@ -171,6 +175,10 @@ def training_step(
                 gradients=gradients,
             ),
         )
+
+        # enter debugging mode if any parameter is NaN
+        jax.lax.cond(jnp.any(jax.tree.map(lambda x: jnp.any(jnp.isnan(x)), state)),
+                      jax.debug.breakpoint, lambda: None)
     else:
         _, metrics = _compute_loss(state, batch)
 
