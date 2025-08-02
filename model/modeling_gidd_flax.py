@@ -740,16 +740,16 @@ class GiddForDiffusionLM(EasyDeLBaseModule):
         )
 
         if self.config.tie_word_embeddings:
-            lm_logits = jax.lax.dot_general(
+            logits = jax.lax.dot_general(
                 hidden_states,
                 self.model.embed_tokens.embedding.value.T,
                 (((hidden_states.ndim - 1), (0,)), ((), ())),
             )
         else:
-            lm_logits = self.lm_head(hidden_states)
+            logits = self.lm_head(hidden_states)
 
         return CausalLMOutput(
-            logits=lm_logits,
+            logits=logits,
             hidden_states=outputs.hidden_states,
             attentions=outputs.attentions,
             attention_logits=outputs.attention_logits,
