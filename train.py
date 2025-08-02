@@ -103,6 +103,7 @@ def train(args):
             partition_axis=ed.PartitionAxis(),
             gradient_checkpointing=ed.EasyDeLGradientCheckPointers.NOTHING_SAVEABLE,
             # attn_mechanism=ed.AttentionMechanisms.SDPA,
+            # attn_mechanism=ed.AttentionMechanisms.CUDNN,
             attn_mechanism=ed.AttentionMechanisms.VANILLA,
             attn_dtype=jnp.bfloat16,
             # attn_dtype=jnp.float32,
@@ -116,115 +117,80 @@ def train(args):
         # param_dtype=jnp.float32,
         precision=jax.lax.Precision.HIGH,
         rngs=ed.Rngs(0),
-    )#.shard_model()  # Shard the newly created model across devices.
+    ).shard_model()  # Shard the newly created model across devices.
+
+    class CustomDiffusionConfig(DiffusionConfig):
+        # override the `get_optimizer_and_scheduler` method to implement per-layer learning rates
+        def get_optimizer_and_scheduler(self, steps):
+            optimizer_kwargs = deepcopy(self.optimizer_kwargs)
+            steps = optimizer_kwargs.pop("steps")
+            warmup_steps = optimizer_kwargs.pop("warmup_steps", 0)
+            cooldown_steps = optimizer_kwargs.pop("cooldown_steps", 0)
+            clip_grad = optimizer_kwargs.pop("clip_grad", None)
+            weight_decay = optimizer_kwargs.pop("weight_decay", 0.0)
 
 
-    # def print_array_type(p):
-    #     jax.debug.inspect_array_sharding(p, callback=print)
-    #     jax.debug.visualize_array_sharding(p)
+            adam_kwargs = dict(b1=0.9, b2=0.99, eps=1e-12)
 
-    # jax.tree.map(print_array_type, model.graphstate)
+            bulk_schedule = wsd_lr_schedule(
+                total_steps=steps,
+                base_lr=lr / hidden_size**0.5,
+                warmup_steps=warmup_steps,
+                cooldown_steps=cooldown_steps,
+            )
+            qk_scale_schedule = wsd_lr_schedule(
+                total_steps=steps,
+                base_lr=lr,
+                warmup_steps=warmup_steps,
+                cooldown_steps=cooldown_steps,
+            )
+            other_schedule = wsd_lr_schedule(
+                total_steps=steps,
+                base_lr=lr / hidden_size**0.5,
+                warmup_steps=warmup_steps,
+                cooldown_steps=cooldown_steps,
+            )
 
-    # model = ed.LlamaForCausalLM(
-    #     config=ed.LlamaConfig(
-    #         vocab_size=len(tokenizer),
-    #         hidden_size=hidden_size,
-    #         intermediate_size=4*hidden_size,
-    #         num_hidden_layers=num_layers,
-    #         num_attention_heads=hidden_size // head_dim,
-    #         head_dim=head_dim,
-    #         use_cache=False,
-    #         max_position_embeddings=max_length,
-    #         sharding_axis_dims=(1, jax.process_count(), 1, -1, 1),  # FSDP
-    #         # sharding_axis_dims=(-1, 1, 1, 1, 1),  # DP
-    #         # sharding_axis_dims=(1, 1, 1, -1, 1),  # TP
-    #         partition_axis=ed.PartitionAxis(),
-    #         gradient_checkpointing=ed.EasyDeLGradientCheckPointers.NOTHING_SAVEABLE,
-    #         attn_mechanism=ed.AttentionMechanisms.VANILLA,
-    #         attn_dtype=jnp.bfloat16,
-    #         # attn_dtype=jnp.float32,
-    #         # scan_layers=True,
-    #     ),
-    #     dtype=jnp.bfloat16,
-    #     param_dtype=jnp.bfloat16,
-    #     # dtype=jnp.float32,
-    #     # param_dtype=jnp.float32,
-    #     precision=jax.lax.Precision.HIGH,
-    #     rngs=ed.Rngs(0),
-    # )
+            def param_label_fn(params: tp.Any) -> str:
+                def label_leaf(path: str, param: chex.Array) -> str:
+                    path = ''.join(str(k) for k in path)
 
-    # class CustomDiffusionConfig(DiffusionConfig):
-    #     # override the `get_optimizer_and_scheduler` method to implement per-layer learning rates
-    #     def get_optimizer_and_scheduler(self, steps):
-    #         optimizer_kwargs = deepcopy(self.optimizer_kwargs)
-    #         steps = optimizer_kwargs.pop("steps")
-    #         warmup_steps = optimizer_kwargs.pop("warmup_steps", 0)
-    #         cooldown_steps = optimizer_kwargs.pop("cooldown_steps", 0)
-    #         clip_grad = optimizer_kwargs.pop("clip_grad", None)
-    #         weight_decay = optimizer_kwargs.pop("weight_decay", 0.0)
+                    if "qk_scale" in path:
+                        return "qk_scale"
+                    elif "norm" in path:
+                        return "other_wd_params"
+                    elif "embed_tokens" in path or param.ndim < 2:
+                        return "other_nowd_params"
+                    else:
+                        return "bulk_params"
 
+                labels = jax.tree.map_with_path(label_leaf, params)
+                return labels
 
-    #         adam_kwargs = dict(b1=0.9, b2=0.99, eps=1e-12)
+            optimizer = optax.multi_transform({
+                "bulk_params": optax.adamw(learning_rate=bulk_schedule, weight_decay=weight_decay, **adam_kwargs),
+                "qk_scale": optax.adamw(learning_rate=qk_scale_schedule, weight_decay=0.0, **adam_kwargs),
+                "other_wd_params": optax.adamw(learning_rate=other_schedule, weight_decay=weight_decay, **adam_kwargs),
+                "other_nowd_params": optax.adamw(learning_rate=other_schedule, weight_decay=0.0, **adam_kwargs),
+            }, param_label_fn)
 
-    #         bulk_schedule = wsd_lr_schedule(
-    #             total_steps=steps,
-    #             base_lr=lr / hidden_size**0.5,
-    #             warmup_steps=warmup_steps,
-    #             cooldown_steps=cooldown_steps,
-    #         )
-    #         qk_scale_schedule = wsd_lr_schedule(
-    #             total_steps=steps,
-    #             base_lr=lr,
-    #             warmup_steps=warmup_steps,
-    #             cooldown_steps=cooldown_steps,
-    #         )
-    #         other_schedule = wsd_lr_schedule(
-    #             total_steps=steps,
-    #             base_lr=lr / hidden_size**0.5,
-    #             warmup_steps=warmup_steps,
-    #             cooldown_steps=cooldown_steps,
-    #         )
+            if clip_grad:
+                tx = optax.chain(
+                    optax.clip_by_global_norm(clip_grad),
+                    optimizer,
+                )
+            else:
+                tx = optimizer
 
-    #         def param_label_fn(params: tp.Any) -> str:
-    #             def label_leaf(path: str, param: chex.Array) -> str:
-    #                 path = ''.join(str(k) for k in path)
-
-    #                 if "qk_scale" in path:
-    #                     return "qk_scale"
-    #                 elif "norm" in path:
-    #                     return "other_wd_params"
-    #                 elif "embed_tokens" in path or param.ndim < 2:
-    #                     return "other_nowd_params"
-    #                 else:
-    #                     return "bulk_params"
-
-    #             labels = jax.tree.map_with_path(label_leaf, params)
-    #             return labels
-
-    #         optimizer = optax.multi_transform({
-    #             "bulk_params": optax.adamw(learning_rate=bulk_schedule, weight_decay=weight_decay, **adam_kwargs),
-    #             "qk_scale": optax.adamw(learning_rate=qk_scale_schedule, weight_decay=0.0, **adam_kwargs),
-    #             "other_wd_params": optax.adamw(learning_rate=other_schedule, weight_decay=weight_decay, **adam_kwargs),
-    #             "other_nowd_params": optax.adamw(learning_rate=other_schedule, weight_decay=0.0, **adam_kwargs),
-    #         }, param_label_fn)
-
-    #         if clip_grad:
-    #             tx = optax.chain(
-    #                 optax.clip_by_global_norm(clip_grad),
-    #                 optimizer,
-    #             )
-    #         else:
-    #             tx = optimizer
-
-    #         if optimizer_kwargs.get("gradient_accumulation_steps", 0) > 1:
-    #             tx = optax.MultiSteps(tx, optimizer_kwargs["gradient_accumulation_steps"])
+            if optimizer_kwargs.get("gradient_accumulation_steps", 0) > 1:
+                tx = optax.MultiSteps(tx, optimizer_kwargs["gradient_accumulation_steps"])
             
-    #         # the LR schedule returned here is only used for logging purposes
-    #         return optimizer, bulk_schedule
+            # the LR schedule returned here is only used for logging purposes
+            return optimizer, bulk_schedule
 
     # --- Configuration ---
-    # arguments = CustomDiffusionConfig(
-    arguments = DiffusionConfig(
+    arguments = CustomDiffusionConfig(
+    # arguments = DiffusionConfig(
         model_name="gidd",  # for wandb run name
         num_train_epochs=1,
         total_batch_size=total_batch_size,
@@ -249,7 +215,7 @@ def train(args):
         save_optimizer_state=False,
         clip_grad=1.0,
         report_steps=50,
-        log_steps=10,
+        log_steps=50,
         progress_bar_type="json",
         track_memory=20.0,
         use_grain=False,
@@ -277,5 +243,4 @@ def train(args):
         trainer.memory_monitor.start_monitoring()
 
     logger.info("Starting training...")
-    with jax.profiler.trace("/tmp/jax-trace"):
-        trainer.train()
+    trainer.train()
