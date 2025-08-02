@@ -177,7 +177,7 @@ def training_step(
         )
 
         # enter debugging mode if any parameter is NaN
-        jax.lax.cond(jnp.any(jax.tree.map(lambda x: jnp.any(jnp.isnan(x)), state)),
+        jax.lax.cond(jnp.any(jax.tree.map(lambda x: jnp.any(jnp.isnan(x)), state.graphstate)),
                       jax.debug.breakpoint, lambda: None)
     else:
         _, metrics = _compute_loss(state, batch)
