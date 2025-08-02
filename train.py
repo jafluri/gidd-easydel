@@ -96,7 +96,8 @@ def train(args):
             weight_scaling="fan_in",
             # weight_scaling=1.0,
             use_qk_norm=True,
-            sharding_axis_dims=(1, jax.process_count(), 1, -1, 1),  # FSDP
+            # sharding_axis_dims=(1, jax.process_count(), 1, -1, 1),  # FSDP + TP
+            sharding_axis_dims=(1, -1, 1, 1, 1),  # FSDP
             # sharding_axis_dims=(-1, 1, 1, 1, 1),  # DP
             # sharding_axis_dims=(1, 1, 1, -1, 1),  # TP
             partition_axis=ed.PartitionAxis(),
@@ -115,7 +116,14 @@ def train(args):
         # param_dtype=jnp.float32,
         precision=jax.lax.Precision.HIGH,
         rngs=ed.Rngs(0),
-    ).shard_model()  # Shard the newly created model across devices.
+    )#.shard_model()  # Shard the newly created model across devices.
+
+
+    # def print_array_type(p):
+    #     jax.debug.inspect_array_sharding(p, callback=print)
+    #     jax.debug.visualize_array_sharding(p)
+
+    # jax.tree.map(print_array_type, model.graphstate)
 
     # model = ed.LlamaForCausalLM(
     #     config=ed.LlamaConfig(
@@ -145,77 +153,78 @@ def train(args):
     #     rngs=ed.Rngs(0),
     # )
 
-    class CustomDiffusionConfig(DiffusionConfig):
-        # override the `get_optimizer_and_scheduler` method to implement per-layer learning rates
-        def get_optimizer_and_scheduler(self, steps):
-            optimizer_kwargs = deepcopy(self.optimizer_kwargs)
-            steps = optimizer_kwargs.pop("steps")
-            warmup_steps = optimizer_kwargs.pop("warmup_steps", 0)
-            cooldown_steps = optimizer_kwargs.pop("cooldown_steps", 0)
-            clip_grad = optimizer_kwargs.pop("clip_grad", None)
-            weight_decay = optimizer_kwargs.pop("weight_decay", 0.0)
+    # class CustomDiffusionConfig(DiffusionConfig):
+    #     # override the `get_optimizer_and_scheduler` method to implement per-layer learning rates
+    #     def get_optimizer_and_scheduler(self, steps):
+    #         optimizer_kwargs = deepcopy(self.optimizer_kwargs)
+    #         steps = optimizer_kwargs.pop("steps")
+    #         warmup_steps = optimizer_kwargs.pop("warmup_steps", 0)
+    #         cooldown_steps = optimizer_kwargs.pop("cooldown_steps", 0)
+    #         clip_grad = optimizer_kwargs.pop("clip_grad", None)
+    #         weight_decay = optimizer_kwargs.pop("weight_decay", 0.0)
 
 
-            adam_kwargs = dict(b1=0.9, b2=0.99, eps=1e-12)
+    #         adam_kwargs = dict(b1=0.9, b2=0.99, eps=1e-12)
 
-            bulk_schedule = wsd_lr_schedule(
-                total_steps=steps,
-                base_lr=lr / hidden_size**0.5,
-                warmup_steps=warmup_steps,
-                cooldown_steps=cooldown_steps,
-            )
-            qk_scale_schedule = wsd_lr_schedule(
-                total_steps=steps,
-                base_lr=lr,
-                warmup_steps=warmup_steps,
-                cooldown_steps=cooldown_steps,
-            )
-            other_schedule = wsd_lr_schedule(
-                total_steps=steps,
-                base_lr=lr / hidden_size**0.5,
-                warmup_steps=warmup_steps,
-                cooldown_steps=cooldown_steps,
-            )
+    #         bulk_schedule = wsd_lr_schedule(
+    #             total_steps=steps,
+    #             base_lr=lr / hidden_size**0.5,
+    #             warmup_steps=warmup_steps,
+    #             cooldown_steps=cooldown_steps,
+    #         )
+    #         qk_scale_schedule = wsd_lr_schedule(
+    #             total_steps=steps,
+    #             base_lr=lr,
+    #             warmup_steps=warmup_steps,
+    #             cooldown_steps=cooldown_steps,
+    #         )
+    #         other_schedule = wsd_lr_schedule(
+    #             total_steps=steps,
+    #             base_lr=lr / hidden_size**0.5,
+    #             warmup_steps=warmup_steps,
+    #             cooldown_steps=cooldown_steps,
+    #         )
 
-            def param_label_fn(params: tp.Any) -> str:
-                def label_leaf(path: str, param: chex.Array) -> str:
-                    path = ''.join(str(k) for k in path)
+    #         def param_label_fn(params: tp.Any) -> str:
+    #             def label_leaf(path: str, param: chex.Array) -> str:
+    #                 path = ''.join(str(k) for k in path)
 
-                    if "qk_scale" in path:
-                        return "qk_scale"
-                    elif "norm" in path:
-                        return "other_wd_params"
-                    elif "embed_tokens" in path or param.ndim < 2:
-                        return "other_nowd_params"
-                    else:
-                        return "bulk_params"
+    #                 if "qk_scale" in path:
+    #                     return "qk_scale"
+    #                 elif "norm" in path:
+    #                     return "other_wd_params"
+    #                 elif "embed_tokens" in path or param.ndim < 2:
+    #                     return "other_nowd_params"
+    #                 else:
+    #                     return "bulk_params"
 
-                labels = jax.tree.map_with_path(label_leaf, params)
-                return labels
+    #             labels = jax.tree.map_with_path(label_leaf, params)
+    #             return labels
 
-            optimizer = optax.multi_transform({
-                "bulk_params": optax.adamw(learning_rate=bulk_schedule, weight_decay=weight_decay, **adam_kwargs),
-                "qk_scale": optax.adamw(learning_rate=qk_scale_schedule, weight_decay=0.0, **adam_kwargs),
-                "other_wd_params": optax.adamw(learning_rate=other_schedule, weight_decay=weight_decay, **adam_kwargs),
-                "other_nowd_params": optax.adamw(learning_rate=other_schedule, weight_decay=0.0, **adam_kwargs),
-            }, param_label_fn)
+    #         optimizer = optax.multi_transform({
+    #             "bulk_params": optax.adamw(learning_rate=bulk_schedule, weight_decay=weight_decay, **adam_kwargs),
+    #             "qk_scale": optax.adamw(learning_rate=qk_scale_schedule, weight_decay=0.0, **adam_kwargs),
+    #             "other_wd_params": optax.adamw(learning_rate=other_schedule, weight_decay=weight_decay, **adam_kwargs),
+    #             "other_nowd_params": optax.adamw(learning_rate=other_schedule, weight_decay=0.0, **adam_kwargs),
+    #         }, param_label_fn)
 
-            if clip_grad:
-                tx = optax.chain(
-                    optax.clip_by_global_norm(clip_grad),
-                    optimizer,
-                )
-            else:
-                tx = optimizer
+    #         if clip_grad:
+    #             tx = optax.chain(
+    #                 optax.clip_by_global_norm(clip_grad),
+    #                 optimizer,
+    #             )
+    #         else:
+    #             tx = optimizer
 
-            if optimizer_kwargs.get("gradient_accumulation_steps", 0) > 1:
-                tx = optax.MultiSteps(tx, optimizer_kwargs["gradient_accumulation_steps"])
+    #         if optimizer_kwargs.get("gradient_accumulation_steps", 0) > 1:
+    #             tx = optax.MultiSteps(tx, optimizer_kwargs["gradient_accumulation_steps"])
             
-            # the LR schedule returned here is only used for logging purposes
-            return optimizer, bulk_schedule
+    #         # the LR schedule returned here is only used for logging purposes
+    #         return optimizer, bulk_schedule
 
     # --- Configuration ---
-    arguments = CustomDiffusionConfig(
+    # arguments = CustomDiffusionConfig(
+    arguments = DiffusionConfig(
         model_name="gidd",  # for wandb run name
         num_train_epochs=1,
         total_batch_size=total_batch_size,
@@ -230,6 +239,8 @@ def train(args):
         hybrid_mixing_scale=args.hybrid_mixing_scale,
         hybrid_mixing_shift=args.hybrid_mixing_shift,
         learning_rate=lr,
+        optimizer=ed.EasyDeLOptimizers.ADAMW,
+        scheduler=ed.EasyDeLSchedulers.COSINE,
         warmup_steps=2000,
         weight_decay=0.02,
         save_directory=args.save_directory,
@@ -238,9 +249,9 @@ def train(args):
         save_optimizer_state=False,
         clip_grad=1.0,
         report_steps=50,
-        log_steps=50,
+        log_steps=10,
         progress_bar_type="json",
-        # track_memory=60.0,
+        track_memory=20.0,
         use_grain=False,
     )
 
@@ -266,4 +277,5 @@ def train(args):
         trainer.memory_monitor.start_monitoring()
 
     logger.info("Starting training...")
-    trainer.train()
+    with jax.profiler.trace("/tmp/jax-trace"):
+        trainer.train()
