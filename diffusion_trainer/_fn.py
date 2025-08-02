@@ -110,7 +110,7 @@ def compute_loss(loss_fn, state, tree, minibatch) -> tuple[chex.Array, LossMetri
         metrics["num_tokens"] = jnp.prod(jnp.array(loss.shape))
 
     # jax.lax.cond(avg_loss < 6, jax.debug.breakpoint, lambda: None)
-    # jax.lax.cond(jnp.isnan(avg_loss), jax.debug.breakpoint, lambda: None)
+    jax.lax.cond(jnp.isnan(avg_loss), jax.debug.breakpoint, lambda: None)
 
     return avg_loss, LossMetrics(
         loss=avg_loss,
@@ -173,9 +173,5 @@ def training_step(
         )
     else:
         _, metrics = _compute_loss(state, batch)
-
-    # jax.block_until_ready(state)
-    # jax.profiler.save_device_memory_profile(f"memory.prof")
-    # raise KeyboardInterrupt
 
     return state, metrics
