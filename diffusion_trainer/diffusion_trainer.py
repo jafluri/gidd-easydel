@@ -101,24 +101,8 @@ class DiffusionTrainer(Trainer):
         logger.info("Initialized DiffusionTrainer")
 
     def prepare_batch(self, batch: dict[str, jax.Array]) -> dict[str, jax.Array]:
-        labels = batch["input_ids"]
-        shape = labels.shape
-
-        # Split key for independent sampling operations
-        self.key, noise_key, snr_key, marginal_key = jax.random.split(self.key, 4)
-
-        noise_mask = self._sample_noise_mask(noise_key, shape)
-        log_snr = self._sample_log_snr(snr_key, shape)
-        log_snr = jnp.where(noise_mask, log_snr, self.arguments.max_log_snr)
-
-        input_ids = self.mixing_schedule.sample_marginals(marginal_key, log_snr, labels)
-        input_ids = jnp.where(noise_mask, input_ids, labels)
-
-        batch["input_ids"] = input_ids
-        batch["labels"] = labels
-        batch["log_snr"] = log_snr
-        batch["noise_mask"] = noise_mask
-        batch["attention_mask"] = batch.get("attention_mask", jnp.ones(shape, dtype=bool))
+        self.key, curr_key = jax.random.split(self.key, 2)
+        batch["rng_key"] = curr_key
         return batch
     
     def _sample_log_snr(self, key: jax.Array, shape: tuple[int, ...]) -> jax.Array:
@@ -241,6 +225,9 @@ class DiffusionTrainer(Trainer):
 
         self._train_shared_fn_static_args = (
             self.loss_fn,
+            self._sample_log_snr,
+            self._sample_noise_mask,
+            self.mixing_schedule.sample_marginals,
             self.arguments.loss_config,
             self.scheduler,
             self.arguments.step_partition_spec,
@@ -248,7 +235,7 @@ class DiffusionTrainer(Trainer):
             True,  # is_train
         )
 
-        static_argnames = (2, 3, 4, 5, 6, 7)
+        static_argnames = (2, 3, 4, 5, 6, 7, 8, 9, 10)
         sharded_training_step_function = jax.jit(
             training_step,
             in_shardings=(self.state_shardings, empty_sharding),
@@ -257,14 +244,7 @@ class DiffusionTrainer(Trainer):
             static_argnums=static_argnames,
         )
 
-        self._eval_shared_fn_static_args = (
-            self.loss_fn,
-            self.arguments.loss_config,
-            self.scheduler,
-            self.arguments.step_partition_spec,
-            self.arguments.gradient_accumulation_steps,
-            False,  # is_train
-        )
+        self._eval_shared_fn_static_args = self._train_shared_fn_static_args[:-1] + (False,)  # is_train=False
 
         sharded_evaluation_step_function = jax.jit(
             training_step,

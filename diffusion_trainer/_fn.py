@@ -18,6 +18,36 @@ from easydel.trainers.training_utils import make_assertions_and_get_sizes, minib
 from .loss import GiddLoss
 
 
+
+def prepare_batch(
+    batch: dict[str, jax.Array],
+    key: jax.Array,
+    sample_log_snr_fn: tp.Callable,
+    sample_noise_mask_fn: tp.Callable,
+    sample_marginals_fn: tp.Callable,
+    max_log_snr: float = 10.0,
+) -> dict[str, jax.Array]:
+    labels = batch["input_ids"]
+    shape = labels.shape
+
+    # Split key for independent sampling operations
+    noise_key, snr_key, marginal_key = jax.random.split(key, 3)
+
+    noise_mask = sample_noise_mask_fn(noise_key, shape)
+    log_snr = sample_log_snr_fn(snr_key, shape)
+    log_snr = jnp.where(noise_mask, log_snr, max_log_snr)
+
+    input_ids = sample_marginals_fn(marginal_key, log_snr, labels)
+    input_ids = jnp.where(noise_mask, input_ids, labels)
+
+    batch["input_ids"] = input_ids
+    batch["labels"] = labels
+    batch["log_snr"] = log_snr
+    batch["noise_mask"] = noise_mask
+    batch["attention_mask"] = batch.get("attention_mask", jnp.ones(shape, dtype=bool))
+    return batch
+
+
 def compute_loss(loss_fn, state, tree, minibatch) -> tuple[chex.Array, LossMetrics]:
     input_ids = minibatch.get("input_ids", None)
     labels = minibatch.get("labels", None)
@@ -35,10 +65,6 @@ def compute_loss(loss_fn, state, tree, minibatch) -> tuple[chex.Array, LossMetri
         output_attentions=True,
     )
     logits = outputs.logits
-
-    # jax.debug.breakpoint()
-
-    # jax.debug.print("Attn entropies: {x}", x=attn_entropies)
 
     loss_mask = attention_mask & noise_mask
 
@@ -71,7 +97,7 @@ def compute_loss(loss_fn, state, tree, minibatch) -> tuple[chex.Array, LossMetri
         mask_sum = loss_mask.sum()
         
         # Normalize loss and metrics by the number of valid tokens
-        loss = masked_loss.sum() / jnp.maximum(mask_sum, 1.0)
+        avg_loss = masked_loss.sum() / jnp.maximum(mask_sum, 1.0)
         metrics = {
             k: v.sum() / jnp.maximum(mask_sum, 1.0)
             for k, v in masked_metrics.items()
@@ -79,26 +105,15 @@ def compute_loss(loss_fn, state, tree, minibatch) -> tuple[chex.Array, LossMetri
         metrics["num_tokens"] = mask_sum
     else:
         # No mask - compute mean directly
-        loss = loss.mean()
+        avg_loss = loss.mean()
         metrics = {k: v.mean() for k, v in metrics.items()}
         metrics["num_tokens"] = jnp.prod(jnp.array(loss.shape))
 
-    # # No mask - compute mean directly
-    # loss = loss.mean()
-    # metrics = {k: v.mean() for k, v in metrics.items()}
-    # metrics["num_tokens"] = jnp.prod(jnp.array(loss.shape))
+    # jax.lax.cond(avg_loss < 6, jax.debug.breakpoint, lambda: None)
+    # jax.lax.cond(jnp.isnan(avg_loss), jax.debug.breakpoint, lambda: None)
 
-    # import optax
-    # loss = optax.softmax_cross_entropy_with_integer_labels(
-    #     logits=logits,
-    #     labels=labels,
-    # ).mean()
-    # metrics = {}
-
-    # jax.lax.cond(loss < 6, jax.debug.breakpoint, lambda: None)
-
-    return loss, LossMetrics(
-        loss=loss,
+    return avg_loss, LossMetrics(
+        loss=avg_loss,
         other_metrics=metrics,
     )
 
@@ -107,20 +122,31 @@ def training_step(
     state: EasyDeLState,
     batch: tp.Mapping[str, jax.Array],
     loss_fn: GiddLoss,
+    sample_log_snr_fn: tp.Callable,
+    sample_noise_mask_fn: tp.Callable,
+    sample_marginals_fn: tp.Callable,
     loss_config: LossConfig | None = None,
     learning_rate_fn: optax.Schedule = None,
     partition_spec: PartitionSpec | None = None,
     gradient_accumulation_steps: int = 1,
     is_training: bool = True,
 ) -> tuple[EasyDeLState, LossMetrics]:
-    import jax
     # Determine batch size, minibatch size, and enforce partition spec.
     batch_size, minibatch_size, partition_spec = make_assertions_and_get_sizes(
         batch=batch,
         gradient_accumulation_steps=gradient_accumulation_steps,
         batch_partition_spec=partition_spec,
     )
-    batch = with_sharding_constraint(arr=batch, sharding=partition_spec)
+
+    rng_key = batch.pop("rng_key")
+    batch = with_sharding_constraint(batch, sharding={key: partition_spec for key in batch.keys()})
+    batch = prepare_batch(
+        batch=batch,
+        key=rng_key,
+        sample_log_snr_fn=sample_log_snr_fn,
+        sample_noise_mask_fn=sample_noise_mask_fn,
+        sample_marginals_fn=sample_marginals_fn,
+    )
 
     _compute_loss = functools.partial(compute_loss, loss_fn, state)
 
@@ -133,25 +159,6 @@ def training_step(
             grad_fn=jax.value_and_grad(_compute_loss, has_aux=True),
         )
 
-        # min_grad_norm = jax.tree_util.tree_reduce(
-        #     jnp.minimum,
-        #     jax.tree_util.tree_map(jnp.linalg.norm, gradients),
-        # )
-        # jax.lax.cond(
-        #     min_grad_norm < 1e-10,
-        #     jax.debug.breakpoint,
-        #     lambda: None,
-        # )
-
-        # def start_debugger():
-        #     import debugpy
-        #     debugpy.breakpoint()
-        #     # pdb.set_trace()
-        #     print("Debugger")
-        # # open python debugger inside jax.debug
-        # jax.debug.callback(
-        #     start_debugger
-        # )
         # Update state using the computed gradients and updated metrics.
         state = update_state_respectfully(
             state=state,
