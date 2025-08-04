@@ -55,6 +55,12 @@ def train(args):
 
     logger.info("Process count: %d, device count: %d, process index: %d",
                 jax.process_count(), jax.local_device_count(), jax.process_index())
+    
+
+    dtype = {
+        "fp32": jnp.float32,
+        "bf16": jnp.bfloat16,
+    }[args.dtype]
 
     # --- Basic Training Parameters ---
     seed = args.seed
@@ -99,7 +105,7 @@ def train(args):
             resid_scale=resid_scale,
             init_scale=init_scale / hidden_size**0.5,
             emb_init_scale=aux_init_scale,
-            head_init_scale=aux_init_scale,
+            head_init_scale=0.0 if args.use_zero_head_init else aux_init_scale,
             weight_scaling=1.0,
             head_scaling=head_scale / hidden_size,
             use_qk_norm=True,
@@ -111,16 +117,13 @@ def train(args):
             # attn_mechanism=ed.AttentionMechanisms.SDPA,
             # attn_mechanism=ed.AttentionMechanisms.CUDNN,
             attn_mechanism=ed.AttentionMechanisms.VANILLA,
-            attn_dtype=jnp.bfloat16,
-            # attn_dtype=jnp.float32,
+            attn_dtype=dtype,
             attention_bias=False,
             mlp_bias=True,
             # scan_layers=True,
         ),
-        dtype=jnp.bfloat16,
-        param_dtype=jnp.bfloat16,
-        # dtype=jnp.float32,
-        # param_dtype=jnp.float32,
+        dtype=dtype,
+        param_dtype=dtype,
         precision=jax.lax.Precision.HIGH,
         rngs=ed.Rngs(0),
     ).shard_model()  # Shard the newly created model across devices.
