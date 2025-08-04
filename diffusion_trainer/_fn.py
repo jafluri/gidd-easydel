@@ -176,9 +176,22 @@ def training_step(
             ),
         )
 
+        # jax.debug.breakpoint()
+
+        # all_params = jnp.concatenate([x.ravel() for x in jax.tree_util.tree_leaves(state.graphstate)])
+        # jax.lax.cond(jnp.any(jnp.isnan(all_params)), jax.debug.breakpoint, lambda: None)
+
         # enter debugging mode if any parameter is NaN
-        jax.lax.cond(jnp.any(jax.tree.map(lambda x: jnp.any(jnp.isnan(x)), state.graphstate)),
-                      jax.debug.breakpoint, lambda: None)
+        # jax.lax.cond(jnp.any(jnp.stack(jax.tree.leaves(jax.tree.map(lambda x: jnp.any(jnp.isnan(x)), state.graphstate)))),
+        #               jax.debug.breakpoint, lambda: None)
+        # has_nan = jax.tree_util.tree_reduce(
+        #     lambda x, y: x | jnp.any(jnp.isnan(y)),
+        #     state.graphstate,
+        #     False,
+        # )
+        has_nan = jnp.isnan(metrics.loss)
+        jax.lax.cond(has_nan, jax.debug.breakpoint, lambda: None)
+
     else:
         _, metrics = _compute_loss(state, batch)
 

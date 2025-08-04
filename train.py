@@ -217,7 +217,7 @@ def train(args):
         report_steps=50,
         log_steps=50,
         progress_bar_type="json",
-        track_memory=20.0,
+        # track_memory=20.0,
         use_grain=False,
     )
 
