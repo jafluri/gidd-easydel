@@ -32,8 +32,8 @@ def scale_by_laprop(
 
     def update_fn(updates, state, params=None):
         del params
-        b1_ = beta_debias(b1, state.count)
-        b2_ = beta_debias(b2, state.count)
+        b1_ = beta_debias(b1, optax.safe_increment(state.count))
+        b2_ = beta_debias(b2, optax.safe_increment(state.count))
 
         nu = optax.tree.update_moment_per_elem_norm(updates, state.nu, b2_, 2)
         # mu = optax.tree.update_moment(updates / (jnp.sqrt(nu + eps_root) + eps), state.mu, b1_, 1)
