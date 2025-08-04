@@ -111,9 +111,6 @@ def compute_loss(loss_fn, state, tree, minibatch) -> tuple[chex.Array, LossMetri
         metrics = {k: v.mean() for k, v in metrics.items()}
         metrics["num_tokens"] = jnp.prod(jnp.array(loss.shape))
 
-    # jax.lax.cond(avg_loss < 6, jax.debug.breakpoint, lambda: None)
-    jax.lax.cond(jnp.isnan(avg_loss), jax.debug.breakpoint, lambda: None)
-
     return avg_loss, LossMetrics(
         loss=avg_loss,
         other_metrics=metrics,
@@ -175,21 +172,6 @@ def training_step(
                 gradients=gradients,
             ),
         )
-
-        # jax.debug.breakpoint()
-
-        # all_params = jnp.concatenate([x.ravel() for x in jax.tree_util.tree_leaves(state.graphstate)])
-        # jax.lax.cond(jnp.any(jnp.isnan(all_params)), jax.debug.breakpoint, lambda: None)
-
-        # enter debugging mode if any parameter is NaN
-        # jax.lax.cond(jnp.any(jnp.stack(jax.tree.leaves(jax.tree.map(lambda x: jnp.any(jnp.isnan(x)), state.graphstate)))),
-        #               jax.debug.breakpoint, lambda: None)
-        # has_nan = jax.tree_util.tree_reduce(
-        #     lambda x, y: x | jnp.any(jnp.isnan(y)),
-        #     state.graphstate,
-        #     False,
-        # )
-
     else:
         _, metrics = _compute_loss(state, batch)
 
