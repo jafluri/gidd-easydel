@@ -111,6 +111,12 @@ def compute_loss(loss_fn, state, tree, minibatch) -> tuple[chex.Array, LossMetri
         metrics = {k: v.mean() for k, v in metrics.items()}
         metrics["num_tokens"] = jnp.prod(jnp.array(loss.shape))
 
+
+    # jax.debug.print("Loss: {avg_loss}", avg_loss=avg_loss)
+
+    # removing this line causes loss to be NaN after ~40 steps
+    jax.lax.cond(jnp.isnan(avg_loss), jax.debug.breakpoint, lambda: None)
+
     return avg_loss, LossMetrics(
         loss=avg_loss,
         other_metrics=metrics,
@@ -159,6 +165,8 @@ def training_step(
             minibatch_size=minibatch_size,
             grad_fn=jax.value_and_grad(_compute_loss, has_aux=True),
         )
+
+        # jax.debug.breakpoint()
 
         # Update state using the computed gradients and updated metrics.
         state = update_state_respectfully(
