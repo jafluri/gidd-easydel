@@ -27,17 +27,18 @@ def scale_by_laprop(
 
     def init_fn(params):
         mu = optax.tree.zeros_like(params, dtype=mu_dtype)  # First moment
-        nu = optax.tree.zeros_like(params)  # Second moment
+        nu = optax.tree.zeros_like(params, dtype=jnp.float32)  # Second moment
         return ScaleByLapropState(count=jnp.zeros([], jnp.int32), mu=mu, nu=nu)
 
     def update_fn(updates, state, params=None):
         del params
-        b1_ = beta_debias(b1, optax.safe_increment(state.count))
-        b2_ = beta_debias(b2, optax.safe_increment(state.count))
+        count_inc = optax.safe_increment(state.count)
+        b1_ = beta_debias(b1, count_inc)
+        b2_ = beta_debias(b2, count_inc)
 
         nu = optax.tree.update_moment_per_elem_norm(updates, state.nu, b2_, 2)
         # mu = optax.tree.update_moment(updates / (jnp.sqrt(nu + eps_root) + eps), state.mu, b1_, 1)
-        mu = optax.tree.update_moment(
+        updates = optax.tree.update_moment(
             jax.tree.map(
                 lambda g, n: None if n is None else g / (jnp.sqrt(n + eps_root) + eps),
                 updates,
@@ -48,14 +49,18 @@ def scale_by_laprop(
             b1_,
             1,
         )
-        count_inc = optax.safe_increment(state.count)
 
-        updates = jax.tree.map(
-            lambda m: None if m is None else m,
-            mu,
-            is_leaf=lambda x: x is None,
-        )
-        mu = optax.tree.cast(mu, mu_dtype)
+        # updates = jax.tree.map(
+        #     lambda m: None if m is None else m,
+        #     mu,
+        #     is_leaf=lambda x: x is None,
+        # )
+        mu = optax.tree.cast(updates, mu_dtype)
+
+        # jax.debug.print("Count: {count}, b1: {b1}, b2: {b2}", count=count_inc, b1=b1_, b2=b2_)
+        # jax.lax.cond(jnp.isnan(avg_loss), jax.debug.breakpoint, lambda: None)
+        # jax.lax.cond(jnp.greater_equal(count_inc, 44), jax.debug.breakpoint, lambda: None)
+
         return updates, ScaleByLapropState(count=count_inc, mu=mu, nu=nu)
 
     return optax.GradientTransformation(init_fn, update_fn)
