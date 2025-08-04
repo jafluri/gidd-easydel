@@ -17,7 +17,7 @@ def parse_args(
     parser.add_argument("--aux_lr", type=float, default=1e-3, help="Auxiliary learning rate for the optimizer.")
     parser.add_argument("--init_scale", type=float, default=0.4, help="Initial scale for model parameters.")
     parser.add_argument("--aux_init_scale", type=float, default=0.02, help="Initial scale for embedding parameters.")
-    parser.add_argument("--use_zero_head_init", action=argparse.BooleanOptionalAction, default=True, help="Use zero initialization for the output head.")
+    parser.add_argument("--zero_head_init", action=argparse.BooleanOptionalAction, default=True, help="Use zero initialization for the output head.")
     parser.add_argument("--resid_scale", type=float, default=4.0, help="Scale for residual connections.")
     parser.add_argument("--weight_decay", type=float, default=1e-4, help="Weight decay for the optimizer.")
     parser.add_argument("--ln_wd", type=float, default=0.01, help="Weight decay for layer normalization parameters.")

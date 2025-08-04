@@ -105,7 +105,7 @@ def train(args):
             resid_scale=resid_scale,
             init_scale=init_scale / hidden_size**0.5,
             emb_init_scale=aux_init_scale,
-            head_init_scale=0.0 if args.use_zero_head_init else aux_init_scale,
+            head_init_scale=0.0 if args.zero_head_init else aux_init_scale,
             weight_scaling=1.0,
             head_scaling=head_scale / hidden_size,
             use_qk_norm=True,
