@@ -43,7 +43,10 @@ def scale_by_laprop(
                 updates,
                 nu,
                 is_leaf=lambda x: x is None,
-            )
+            ),
+            state.mu,
+            b1_,
+            1,
         )
         count_inc = optax.safe_increment(state.count)
 
