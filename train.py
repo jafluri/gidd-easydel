@@ -16,6 +16,7 @@ from eformer.optimizers import OptimizerFactory, SchedulerFactory, SchedulerConf
 
 from diffusion_trainer import DiffusionTrainer, DiffusionConfig
 from model import GiddForDiffusionLM, GiddConfig
+from optimizer import lapropw
 
 
 def wsd_lr_schedule(total_steps: int, base_lr: float, warmup_steps: int = 0, cooldown_steps: int = 0) -> tp.Callable[[chex.Numeric], chex.Numeric]:
@@ -65,11 +66,22 @@ def train(args):
     hidden_size = args.hidden_size
     head_dim = args.head_dim
 
-    # lr = args.lr / hidden_size**0.5
-    lr = args.lr
-    init_scale = args.init_scale
-    emb_init_scale = args.emb_init_scale
-    resid_scale = args.resid_scale
+    lr = args.lr  # 0.5
+    aux_lr = args.aux_lr  # 1e-3
+    init_scale = args.init_scale  # 0.4
+    resid_scale = args.resid_scale  # 8
+    aux_init_scale = args.aux_init_scale  # 0.02
+    weight_decay = args.weight_decay  # 1e-4
+    ln_wd = args.ln_wd  # 0.01
+    bias_wd = args.bias_wd  # 0.0
+    head_scale = args.head_scale  # 512
+    adam_eps = args.adam_eps  # 1e-8
+
+    optimizer_fn = {
+        "laprop": lapropw,
+        "adam": optax.adamw,
+    }[args.optimizer]
+
 
     # lr = 5e-4
     # init_scale = 0.02
@@ -90,13 +102,12 @@ def train(args):
             is_causal=False,
             max_position_embeddings=max_length,
             resid_scale=resid_scale,
-            init_scale=init_scale,
-            emb_init_scale=emb_init_scale,
-            head_init_scale=0.0,
-            weight_scaling="fan_in",
-            # weight_scaling=1.0,
+            init_scale=init_scale / hidden_size**0.5,
+            emb_init_scale=aux_init_scale,
+            head_init_scale=aux_init_scale,
+            weight_scaling=1.0,
+            head_scaling=head_scale / hidden_size,
             use_qk_norm=True,
-            # sharding_axis_dims=(1, jax.process_count(), 1, -1, 1),  # FSDP + TP
             sharding_axis_dims=(1, -1, 1, 1, 1),  # FSDP
             # sharding_axis_dims=(-1, 1, 1, 1, 1),  # DP
             # sharding_axis_dims=(1, 1, 1, -1, 1),  # TP
@@ -127,26 +138,16 @@ def train(args):
             warmup_steps = optimizer_kwargs.pop("warmup_steps", 0)
             cooldown_steps = optimizer_kwargs.pop("cooldown_steps", 0)
             clip_grad = optimizer_kwargs.pop("clip_grad", None)
-            weight_decay = optimizer_kwargs.pop("weight_decay", 0.0)
-
-
-            adam_kwargs = dict(b1=0.9, b2=0.99, eps=1e-12)
 
             bulk_schedule = wsd_lr_schedule(
                 total_steps=steps,
-                base_lr=lr / hidden_size**0.5,
+                base_lr=lr / hidden_size,
                 warmup_steps=warmup_steps,
                 cooldown_steps=cooldown_steps,
             )
-            qk_scale_schedule = wsd_lr_schedule(
+            aux_schedule = wsd_lr_schedule(
                 total_steps=steps,
-                base_lr=lr,
-                warmup_steps=warmup_steps,
-                cooldown_steps=cooldown_steps,
-            )
-            other_schedule = wsd_lr_schedule(
-                total_steps=steps,
-                base_lr=lr / hidden_size**0.5,
+                base_lr=aux_lr,
                 warmup_steps=warmup_steps,
                 cooldown_steps=cooldown_steps,
             )
@@ -155,23 +156,29 @@ def train(args):
                 def label_leaf(path: str, param: chex.Array) -> str:
                     path = ''.join(str(k) for k in path)
 
-                    if "qk_scale" in path:
-                        return "qk_scale"
-                    elif "norm" in path:
-                        return "other_wd_params"
-                    elif "embed_tokens" in path or param.ndim < 2:
-                        return "other_nowd_params"
-                    else:
+                    if "norm" in path:
+                        return "ln_params"
+                    elif "embed_tokens" in path:
+                        return "emb_unemb_params"
+                    elif "bias" in path:
+                        return "bias_params"
+                    elif "lm_head" in path:
+                        return "emb_unemb_params"
+                    elif param.ndim > 1:
                         return "bulk_params"
+                    else:
+                        raise ValueError(f"Unknown parameter type: {path}")
 
                 labels = jax.tree.map_with_path(label_leaf, params)
                 return labels
 
+
+            opt_kwargs = dict(b1=0.9, b2=0.99, eps=adam_eps / hidden_size / num_layers)
             optimizer = optax.multi_transform({
-                "bulk_params": optax.adamw(learning_rate=bulk_schedule, weight_decay=weight_decay, **adam_kwargs),
-                "qk_scale": optax.adamw(learning_rate=qk_scale_schedule, weight_decay=0.0, **adam_kwargs),
-                "other_wd_params": optax.adamw(learning_rate=other_schedule, weight_decay=weight_decay, **adam_kwargs),
-                "other_nowd_params": optax.adamw(learning_rate=other_schedule, weight_decay=0.0, **adam_kwargs),
+                "bulk_params": optimizer_fn(learning_rate=bulk_schedule, weight_decay=weight_decay * hidden_size, **opt_kwargs),
+                "ln_params": optimizer_fn(learning_rate=aux_schedule, weight_decay=ln_wd, **opt_kwargs),
+                "bias_params": optimizer_fn(learning_rate=aux_schedule, weight_decay=bias_wd, **opt_kwargs),
+                "emb_unemb_params": optimizer_fn(learning_rate=aux_schedule, weight_decay=0.0, **opt_kwargs),
             }, param_label_fn)
 
             if clip_grad:
@@ -204,7 +211,7 @@ def train(args):
         max_training_steps=100_000,
         hybrid_mixing_scale=args.hybrid_mixing_scale,
         hybrid_mixing_shift=args.hybrid_mixing_shift,
-        learning_rate=lr,
+        learning_rate=lr / hidden_size,
         optimizer=ed.EasyDeLOptimizers.ADAMW,
         scheduler=ed.EasyDeLSchedulers.COSINE,
         warmup_steps=2000,
