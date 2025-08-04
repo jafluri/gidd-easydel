@@ -189,8 +189,6 @@ def training_step(
         #     state.graphstate,
         #     False,
         # )
-        has_nan = jnp.isnan(metrics.loss)
-        jax.lax.cond(has_nan, jax.debug.breakpoint, lambda: None)
 
     else:
         _, metrics = _compute_loss(state, batch)
