@@ -1,0 +1,33 @@
+import argparse
+
+
+def parse_args(
+    default_save_directory="outputs/diffusion_trainer",
+    default_wandb_entity="dvruette",
+    default_data_files="/local/home/dvruette/nemotron_tokenized/**/*.parquet",
+):
+    parser = argparse.ArgumentParser(description="Run the diffusion training process.")
+    parser.add_argument("--seed", type=int, default=0, help="Random seed for reproducibility.")
+    parser.add_argument("--max_seq_len", type=int, default=512, help="Maximum sequence length for the model.")
+    parser.add_argument("--batch_size", type=int, default=8, help="Total batch size for training.")
+    parser.add_argument("--num_layers", type=int, default=8, help="Number of layers in the model.")
+    parser.add_argument("--hidden_size", type=int, default=512, help="Hidden size of the model.")
+    parser.add_argument("--head_dim", type=int, default=64, help="Dimension of each attention head.")
+    parser.add_argument("--lr", type=float, default=0.5, help="Learning rate for the optimizer.")
+    parser.add_argument("--aux_lr", type=float, default=1e-3, help="Auxiliary learning rate for the optimizer.")
+    parser.add_argument("--init_scale", type=float, default=0.4, help="Initial scale for model parameters.")
+    parser.add_argument("--aux_init_scale", type=float, default=0.02, help="Initial scale for embedding parameters.")
+    parser.add_argument("--resid_scale", type=float, default=4.0, help="Scale for residual connections.")
+    parser.add_argument("--weight_decay", type=float, default=1e-4, help="Weight decay for the optimizer.")
+    parser.add_argument("--ln_wd", type=float, default=0.01, help="Weight decay for layer normalization parameters.")
+    parser.add_argument("--bias_wd", type=float, default=0.0, help="Weight decay for bias parameters.")
+    parser.add_argument("--head_scale", type=float, default=512, help="Scale for output layer.")
+    parser.add_argument("--adam_eps", type=float, default=1e-8, help="Epsilon for Adam/Laprop optimizer.")
+    parser.add_argument("--optimizer", type=str, default="laprop", choices=["laprop", "adam"], help="Optimizer to use.")
+    parser.add_argument("--hybrid_mixing_scale", type=float, default=1.0, help="Scale for hybrid mixing schedule.")
+    parser.add_argument("--hybrid_mixing_shift", type=float, default=0.0, help="Shift for hybrid mixing schedule.")
+    parser.add_argument("--tokenizer_id", type=str, default="dvruette/nemotron-cc-bpe", help="Tokenizer ID for the model.")
+    parser.add_argument("--save_directory", type=str, default=default_save_directory, help="Directory to save model checkpoints.")
+    parser.add_argument("--wandb_entity", type=str, default=default_wandb_entity, help="Weights & Biases entity for logging.")
+    parser.add_argument("--data_files", type=str, default=default_data_files, help="Path to training data files.")
+    return parser.parse_args()

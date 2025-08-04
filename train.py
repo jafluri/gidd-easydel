@@ -13,6 +13,7 @@ from jax import numpy as jnp
 from transformers import AutoTokenizer
 from datasets import load_dataset
 from eformer.optimizers import OptimizerFactory, SchedulerFactory, SchedulerConfig
+import wandb
 
 from diffusion_trainer import DiffusionTrainer, DiffusionConfig
 from model import GiddForDiffusionLM, GiddConfig
@@ -69,7 +70,7 @@ def train(args):
     lr = args.lr  # 0.5
     aux_lr = args.aux_lr  # 1e-3
     init_scale = args.init_scale  # 0.4
-    resid_scale = args.resid_scale  # 8
+    resid_scale = args.resid_scale  # 4
     aux_init_scale = args.aux_init_scale  # 0.02
     weight_decay = args.weight_decay  # 1e-4
     ln_wd = args.ln_wd  # 0.01
@@ -81,12 +82,6 @@ def train(args):
         "laprop": lapropw,
         "adam": optax.adamw,
     }[args.optimizer]
-
-
-    # lr = 5e-4
-    # init_scale = 0.02
-    # emb_init_scale = 0.02
-    # resid_scale = num_layers
 
     tokenizer = AutoTokenizer.from_pretrained(args.tokenizer_id)
 
@@ -245,6 +240,8 @@ def train(args):
         eval_dataset=None,
         seed=seed,
     )
+
+    wandb.config.update(vars(args), allow_val_change=True)
 
     if trainer.memory_monitor is not None:
         trainer.memory_monitor.start_monitoring()
