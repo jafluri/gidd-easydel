@@ -75,6 +75,7 @@ class GiddMLP(nn.Module):
             param_dtype=param_dtype,
             use_bias=self.config.mlp_bias,
             kernel_init=jax.nn.initializers.normal(config.init_scale),
+            bias_init=jax.nn.initializers.zeros,
             precision=precision,
             rngs=rngs,
             **get_dot_general_by_bits(config.bits, config.easy_method),
@@ -144,6 +145,7 @@ class GiddAttention(AttentionModule):
             param_dtype=param_dtype,
             use_bias=config.attention_bias,
             kernel_init=jax.nn.initializers.normal(config.init_scale),
+            bias_init=jax.nn.initializers.zeros,
             precision=precision,
             **get_dot_general_by_bits(config.bits, config.easy_method),
         )
@@ -499,7 +501,7 @@ class GiddModel(EasyDeLBaseModule):
             features=self.config.hidden_size,
             dtype=dtype,
             param_dtype=param_dtype,
-            embedding_init=jax.nn.initializers.normal(stddev=self.config.emb_init_scale),
+            embedding_init=jax.nn.initializers.normal(self.config.emb_init_scale),
             rngs=rngs,
         )
         self.layers = [
@@ -674,10 +676,11 @@ class GiddForDiffusionLM(EasyDeLBaseModule):
         self.lm_head = ParallelLinear(
             config.hidden_size,
             config.vocab_size,
+            scale=config.head_scaling,
             dtype=dtype,
             param_dtype=param_dtype,
             use_bias=False,
-            kernel_init=jax.nn.initializers.normal(stddev=config.head_init_scale),
+            kernel_init=jax.nn.initializers.normal(config.head_init_scale),
             precision=self.precision,
             rngs=rngs,
             **get_dot_general_by_bits(config.bits, config.easy_method),

@@ -115,6 +115,7 @@ class GiddConfig(EasyDeLBaseConfig):
         emb_init_scale: float = 0.1,
         head_init_scale: float = 0.0,
         weight_scaling: str = "fan_in",
+        head_scaling: float = 1.0,
         bos_token_id: int = 0,
         eos_token_id: int = 1,
         rope_theta: float = 10000.0,
@@ -152,6 +153,7 @@ class GiddConfig(EasyDeLBaseConfig):
         self.emb_init_scale = emb_init_scale
         self.head_init_scale = head_init_scale
         self.weight_scaling = weight_scaling
+        self.head_scaling = head_scaling
         self.rms_norm_eps = rms_norm_eps
         self.use_qk_norm = use_qk_norm
         self.qk_norm_eps = qk_norm_eps
