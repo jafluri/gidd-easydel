@@ -115,7 +115,7 @@ def compute_loss(loss_fn, state, tree, minibatch) -> tuple[chex.Array, LossMetri
     # jax.debug.print("Loss: {avg_loss}", avg_loss=avg_loss)
 
     # removing this line causes loss to be NaN after ~40 steps
-    jax.lax.cond(jnp.isnan(avg_loss), jax.debug.breakpoint, lambda: None)
+    # jax.lax.cond(jnp.isnan(avg_loss), jax.debug.breakpoint, lambda: None)
 
     return avg_loss, LossMetrics(
         loss=avg_loss,
@@ -168,6 +168,14 @@ def training_step(
 
         # jax.debug.breakpoint()
 
+        # gradients_nan = jax.tree.flatten_with_path(
+        #     jax.tree.map(
+        #         lambda g: jnp.any(jnp.isnan(g)) if g is not None else False,
+        #         gradients,
+        #     )
+        # )
+        # jax.debug.print("Gradients NaN: {gradients_nan}", gradients_nan=gradients_nan)
+
         # Update state using the computed gradients and updated metrics.
         state = update_state_respectfully(
             state=state,
@@ -180,6 +188,16 @@ def training_step(
                 gradients=gradients,
             ),
         )
+
+        # jax.lax.cond(jnp.greater_equal(state.step, 44), jax.debug.breakpoint, lambda: None)
+
+        # state_nan = jax.tree.flatten_with_path(
+        #     jax.tree.map(
+        #         lambda g: jnp.any(jnp.isnan(g)) if g is not None else False,
+        #         state.graphstate,
+        #     )
+        # )
+        # jax.debug.print("Params NaN: {state_nan}", state_nan=state_nan)
     else:
         _, metrics = _compute_loss(state, batch)
 
