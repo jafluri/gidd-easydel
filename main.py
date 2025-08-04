@@ -1,4 +1,3 @@
-import argparse
 import os
 from pprint import pprint
 
@@ -42,7 +41,7 @@ acc_config = TpuAcceleratorConfig(
 )
 
 
-from .args import parse_args
+from args import parse_args
 ARGS = parse_args(SAVE_DIRECTORY, WANDB_ENTITY, DATA_FILES)
 
 
