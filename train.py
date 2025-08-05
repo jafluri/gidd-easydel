@@ -6,14 +6,15 @@ from copy import deepcopy
 
 import easydel as ed
 
+import dask.dataframe as dd
 import jax
 import optax
 import chex
+import wandb
 from jax import numpy as jnp
 from transformers import AutoTokenizer
-from datasets import load_dataset
+from datasets import load_dataset, IterableDataset
 from eformer.optimizers import OptimizerFactory, SchedulerFactory, SchedulerConfig
-import wandb
 
 from diffusion_trainer import DiffusionTrainer, DiffusionConfig
 from model import GiddForDiffusionLM, GiddConfig
@@ -226,13 +227,28 @@ def train(args):
         use_grain=False,
     )
 
-    train_dataset = load_dataset(
-        "parquet",
-        data_files=args.data_files,
-        split="train",
-        streaming=True,
+    df = dd.read_parquet(
+        args.data_files,
+        engine="pyarrow",
+        columns=["tokens"],
     )
-    train_dataset = train_dataset.shuffle(seed=random.randint(0, 2**32 - 1))
+    shuffled_df = df.sample(frac=1.0, random_state=random.randint(0, 2**32 - 1))
+
+    def generate_dataset(df, tokens_field="tokens"):
+        for row in df.itertuples(index=False):
+            yield {tokens_field: row[0]}
+
+    train_dataset = IterableDataset.from_generator(generate_dataset, gen_kwargs={"df": shuffled_df})
+
+    # train_dataset = load_dataset(
+    #     "parquet",
+    #     data_files=args.data_files,
+    #     split="train",
+    #     streaming=True,
+    # )
+
+    # train_dataset = train_dataset.shuffle(seed=random.randint(0, 2**32 - 1))
+
 
     # --- Trainer Setup and Execution ---
     trainer = DiffusionTrainer(
