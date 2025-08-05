@@ -305,7 +305,7 @@ class GiddAttention(AttentionModule):
         )
 
         attentions = self.attention_performer.forward(
-            query_states=query_states * self.qk_scale,
+            query_states=query_states, #* self.qk_scale,
             key_states=key_states,
             value_states=value_states,
             mode=mode,
@@ -317,6 +317,7 @@ class GiddAttention(AttentionModule):
             # segment_ids=segment_ids,
             causal=self.is_causal,
         )
+
         attn_output = self.o_proj(
             self.shard_attention_prod(
                 attn_output=self._merge_heads(attentions.attention_outputs)
