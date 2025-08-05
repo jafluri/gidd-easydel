@@ -27,15 +27,15 @@ class GiddLoss(nn.Module):
         log_snr: chex.Array,
         return_aux: bool = False,
     ) -> tuple[chex.Array, chex.Array]:
-        log_snr = log_snr.astype(logits.dtype)
+        dtype = logits.dtype
         elbo_weights, aux = self.mixing_schedule.get_elbo_weights(log_snr, input_ids, labels, return_aux=True)
         loss_weights = aux["loss_weights"].clip(0, 1e3)
         
         logits = logits.at[..., self.mask_token_id].set(-1e6)  # Mask out the logits for the mask token.
-        x_hat = nn.softmax(logits.astype("f4"), axis=-1).astype(logits.dtype)
+        x_hat = nn.softmax(logits.astype("f4"), axis=-1).astype(dtype)
 
         log_p_t = self.mixing_schedule.marginal_log_probs(log_snr, x_hat)
-        log_q_t = self.mixing_schedule.marginal_log_probs_from_ids(log_snr, labels)
+        log_q_t = self.mixing_schedule.marginal_log_probs_from_ids(log_snr, labels, dtype=dtype)
 
         log_p_zt = jnp.take_along_axis(log_p_t, input_ids[..., None], axis=-1).squeeze(-1)
         log_q_zt = jnp.take_along_axis(log_q_t, input_ids[..., None], axis=-1).squeeze(-1)

@@ -213,13 +213,15 @@ class HybridMixingDistribution(MixingDistribution):
         )
         self.scale = scale
         self.shift = shift
+        self.dtype = dtype or jnp.float32
         self.mask_vec = nn.Variable(nn.one_hot(self.mask_token_id, self.vocab_size, dtype=dtype))
         u = jnp.full((self.vocab_size,), 1.0 / (self.vocab_size - 1), dtype=dtype)
         self.uniform_vec = nn.Variable(u.at[self.mask_token_id].set(0.0))
 
     def pi_lambda(self, log_snr: chex.Array, _: chex.Array | None) -> chex.Array:
-        alpha = safe_sigmoid(self.scale * log_snr + self.shift)[..., None]
-        pi_at_logsnr = alpha * self.uniform_vec + (1 - alpha) * self.mask_vec
+        alpha = safe_sigmoid(self.scale * log_snr + self.shift)
+        pi_at_logsnr = alpha[..., None].astype(self.dtype) * self.uniform_vec
+        pi_at_logsnr = pi_at_logsnr.at[..., self.mask_token_id].add((1 - alpha).astype(self.dtype))
         return pi_at_logsnr
 
     def pi_lambda_from_ids(self, log_snr: chex.Array, _: chex.Array) -> chex.Array:
@@ -242,20 +244,20 @@ class MixingSchedule(MixingRate, MixingDistribution):
 
     def marginal_probs(self, log_snr: chex.Array, probs: chex.Array) -> chex.Array:
         alpha = self.alpha_from_log_snr(log_snr)[..., None]
-        return alpha * probs + (1 - alpha) * self.pi_lambda(log_snr, probs)
+        return alpha.astype(probs.dtype) * probs + (1 - alpha).astype(probs.dtype) * self.pi_lambda(log_snr, probs)
 
-    def marginal_probs_from_ids(self, log_snr: chex.Array, input_ids: chex.Array) -> chex.Array:
+    def marginal_probs_from_ids(self, log_snr: chex.Array, input_ids: chex.Array, dtype: jnp.dtype = None) -> chex.Array:
         alpha = self.alpha_from_log_snr(log_snr)
-        probs = (1 - alpha[..., None]) * self.pi_lambda_from_ids(log_snr, input_ids)
-        probs = probs.at[(*jnp.indices(input_ids.shape), input_ids)].add(alpha)  # scatter_add
+        probs = (1 - alpha[..., None]).astype(dtype) * self.pi_lambda_from_ids(log_snr, input_ids)
+        probs = probs.at[(*jnp.indices(input_ids.shape), input_ids)].add(alpha.astype(dtype))  # scatter_add
         return probs
 
     def marginal_log_probs(self, log_snr: chex.Array, probs: chex.Array) -> chex.Array:
         marginal_probs = self.marginal_probs(log_snr, probs)
         return safe_log(marginal_probs)
 
-    def marginal_log_probs_from_ids(self, log_snr: chex.Array, input_ids: chex.Array) -> chex.Array:
-        marginal_probs = self.marginal_probs_from_ids(log_snr, input_ids)
+    def marginal_log_probs_from_ids(self, log_snr: chex.Array, input_ids: chex.Array, dtype: jnp.dtype = None) -> chex.Array:
+        marginal_probs = self.marginal_probs_from_ids(log_snr, input_ids, dtype=dtype)
         return safe_log(marginal_probs)
 
     def sample_marginals(self, key: chex.PRNGKey, log_snr: chex.Array, labels: chex.Array) -> chex.Array:
