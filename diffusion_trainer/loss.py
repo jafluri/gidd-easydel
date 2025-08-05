@@ -13,11 +13,13 @@ class GiddLoss(nn.Module):
         vocab_size: int,
         beta_is_div: float = 1.0,
         mask_token_id: int = -1,
+        dtype: jnp.dtype = None,
     ):
         self.mixing_schedule = mixing_schedule
         self.vocab_size = vocab_size
         self.beta_is_div = beta_is_div
         self.mask_token_id = mask_token_id
+        self.dtype = dtype
 
     def __call__(
         self,
@@ -27,12 +29,12 @@ class GiddLoss(nn.Module):
         log_snr: chex.Array,
         return_aux: bool = False,
     ) -> tuple[chex.Array, chex.Array]:
-        dtype = logits.dtype
+        dtype = self.dtype or logits.dtype
         elbo_weights, aux = self.mixing_schedule.get_elbo_weights(log_snr, input_ids, labels, return_aux=True)
         loss_weights = aux["loss_weights"].clip(0, 1e3)
         
         logits = logits.at[..., self.mask_token_id].set(-1e6)  # Mask out the logits for the mask token.
-        x_hat = nn.softmax(logits.astype("f4"), axis=-1).astype(dtype)
+        x_hat = nn.softmax(logits.astype(jnp.float32), axis=-1).astype(dtype)
 
         log_p_t = self.mixing_schedule.marginal_log_probs(log_snr, x_hat)
         log_q_t = self.mixing_schedule.marginal_log_probs_from_ids(log_snr, labels, dtype=dtype)
