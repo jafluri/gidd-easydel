@@ -242,6 +242,7 @@ def train(args):
         train_dataset=train_dataset,
         eval_dataset=None,
         seed=seed,
+        dtype=dtype,
     )
 
     wandb.config.update(vars(args), allow_val_change=True)

@@ -12,6 +12,17 @@ import flax.nnx as nn
 Base classes for mixing schedules in diffusion models.
 """
 
+def safe_sigmoid(x: chex.Array, precision=jnp.float32) -> chex.Array:
+    return nn.sigmoid(x.astype(precision)).astype(x.dtype)
+
+
+def safe_log(x: chex.Array, neg_infty: float = -1e6) -> chex.Array:
+    return jnp.where(
+        x > 0,
+        jnp.log(x.clip(jnp.finfo(x.dtype).tiny)),
+        neg_infty,
+    )
+
 
 class Priors(enum.Enum):
     UNIFORM = "uniform"
@@ -19,6 +30,14 @@ class Priors(enum.Enum):
 
 
 class MixingRate(nn.Module, ABC):
+    @property
+    def min_log_snr(self) -> float:
+        return self._min_log_snr
+
+    @property
+    def max_log_snr(self) -> float:
+        return self._max_log_snr
+
     @abstractmethod
     def p_log_snr(self, log_snr: chex.Array) -> chex.Array:
         raise NotImplementedError
@@ -36,10 +55,10 @@ class MixingRate(nn.Module, ABC):
         raise NotImplementedError
 
     def alpha_from_log_snr(self, log_snr: chex.Array) -> chex.Array:
-        return nn.sigmoid(log_snr)
+        return safe_sigmoid(log_snr.clip(self.min_log_snr, self.max_log_snr))
 
     def log_snr_from_alpha(self, alpha: chex.Array) -> chex.Array:
-        return  jnp.log(alpha) - jnp.log(1 - alpha)
+        return  (safe_log(alpha) - safe_log(1 - alpha)).clip(self.min_log_snr, self.max_log_snr)
 
 
 class MixingDistribution(nn.Module, ABC):
@@ -84,7 +103,7 @@ class MixingDistribution(nn.Module, ABC):
         Default implementation uses `one_hot` -> `probs_from_logits`.
         May be overridden by a more efficient implementation.
         """
-        probs = nn.one_hot(input_ids, self.vocab_size)
+        probs = nn.one_hot(input_ids, self.vocab_size, dtype=log_snr.dtype)
         return self.pi_lambda(log_snr, probs)
 
     def pi_lambda_prime(self, log_snr: chex.Array, probs: chex.Array) -> chex.Array:
@@ -100,7 +119,7 @@ class MixingDistribution(nn.Module, ABC):
         Default implementation uses `one_hot` -> `probs_from_logits`.
         May be overridden by a more efficient implementation.
         """
-        probs = nn.one_hot(input_ids, self.vocab_size)
+        probs = nn.one_hot(input_ids, self.vocab_size, dtype=log_snr.dtype)
         return self.pi_lambda_prime(log_snr, probs)
 
 
@@ -112,10 +131,10 @@ class LinearMixingRate(MixingRate):
         max_log_snr: float = 10.0,
         **kwargs,
     ):
-        self.min_log_snr = min_log_snr
-        self.max_log_snr = max_log_snr
-        self.t_min = self.time_from_log_snr(max_log_snr)
-        self.t_max = self.time_from_log_snr(min_log_snr)
+        self._min_log_snr = min_log_snr
+        self._max_log_snr = max_log_snr
+        self.t_min = self.time_from_log_snr(jnp.array(max_log_snr))
+        self.t_max = self.time_from_log_snr(jnp.array(min_log_snr))
 
     def sample_log_snr(self, key: chex.PRNGKey, shape: chex.Shape) -> chex.Array:
         t = jax.random.uniform(key, shape, minval=self.t_min, maxval=self.t_max)
@@ -123,7 +142,7 @@ class LinearMixingRate(MixingRate):
         return log_snr
         
     def p_log_snr(self, log_snr: chex.Array) -> chex.Array:
-        sigm = nn.sigmoid(log_snr)
+        sigm = safe_sigmoid(log_snr)
         return sigm * (1 - sigm)
 
     def log_snr_from_time(self, time: chex.Array) -> chex.Array:
@@ -185,6 +204,7 @@ class HybridMixingDistribution(MixingDistribution):
         mask_token_id: int,
         scale: float = 1.0,
         shift: float = 0.0,
+        dtype: jnp.dtype = None,
     ):
         super().__init__(
             vocab_size=vocab_size,
@@ -193,12 +213,12 @@ class HybridMixingDistribution(MixingDistribution):
         )
         self.scale = scale
         self.shift = shift
-        self.mask_vec = nn.Variable(nn.one_hot(self.mask_token_id, self.vocab_size))
-        u = jnp.full((self.vocab_size,), 1.0 / (self.vocab_size - 1))
+        self.mask_vec = nn.Variable(nn.one_hot(self.mask_token_id, self.vocab_size, dtype=dtype))
+        u = jnp.full((self.vocab_size,), 1.0 / (self.vocab_size - 1), dtype=dtype)
         self.uniform_vec = nn.Variable(u.at[self.mask_token_id].set(0.0))
 
     def pi_lambda(self, log_snr: chex.Array, _: chex.Array | None) -> chex.Array:
-        alpha = nn.sigmoid(self.scale * log_snr + self.shift)[..., None]
+        alpha = safe_sigmoid(self.scale * log_snr + self.shift)[..., None]
         pi_at_logsnr = alpha * self.uniform_vec + (1 - alpha) * self.mask_vec
         return pi_at_logsnr
 
@@ -206,9 +226,9 @@ class HybridMixingDistribution(MixingDistribution):
         return self.pi_lambda(log_snr, None)
 
     def pi_lambda_prime(self, log_snr: chex.Array, _: chex.Array) -> chex.Array:
-        alpha = nn.sigmoid(self.scale * log_snr + self.shift)[..., None]
+        alpha = safe_sigmoid(self.scale * log_snr + self.shift)[..., None].astype(jnp.float32)
         alpha_prime = self.scale * alpha * (1 - alpha)
-        pi_prime = alpha_prime * (self.uniform_vec - self.mask_vec)
+        pi_prime = alpha_prime.astype(log_snr.dtype) * (self.uniform_vec - self.mask_vec)
         return pi_prime
 
     def pi_lambda_prime_from_ids(self, log_snr: chex.Array, _: chex.Array) -> chex.Array:
@@ -232,11 +252,11 @@ class MixingSchedule(MixingRate, MixingDistribution):
 
     def marginal_log_probs(self, log_snr: chex.Array, probs: chex.Array) -> chex.Array:
         marginal_probs = self.marginal_probs(log_snr, probs)
-        return jnp.log(marginal_probs).clip(-1e6)
+        return safe_log(marginal_probs)
 
     def marginal_log_probs_from_ids(self, log_snr: chex.Array, input_ids: chex.Array) -> chex.Array:
         marginal_probs = self.marginal_probs_from_ids(log_snr, input_ids)
-        return jnp.log(marginal_probs).clip(-1e6)
+        return safe_log(marginal_probs)
 
     def sample_marginals(self, key: chex.PRNGKey, log_snr: chex.Array, labels: chex.Array) -> chex.Array:
         log_probs = self.marginal_log_probs_from_ids(log_snr, labels)
@@ -256,14 +276,14 @@ class MixingSchedule(MixingRate, MixingDistribution):
     def get_loss_weights(self, log_snr: chex.Array, input_ids: chex.Array, labels: chex.Array) -> chex.Array:
         pi = self.pi_lambda_from_ids(log_snr, labels)
         pi_prime = self.pi_lambda_prime_from_ids(log_snr, labels)
-        pi_at_z = jnp.take_along_axis(pi, input_ids[..., None], axis=-1).squeeze(-1)  # gather
-        pi_prime_at_z = jnp.take_along_axis(pi_prime, input_ids[..., None], axis=-1).squeeze(-1)  # gather
+        pi_at_z = jnp.take_along_axis(pi, input_ids[..., None], axis=-1).squeeze(-1).astype(jnp.float32)  # gather
+        pi_prime_at_z = jnp.take_along_axis(pi_prime, input_ids[..., None], axis=-1).squeeze(-1).astype(jnp.float32)  # gather
 
         snr = jnp.exp(log_snr)
         delta_zx = (input_ids == labels).astype(log_snr.dtype)
         loss_weights = (pi_at_z - pi_prime_at_z) / (pi_at_z + snr*delta_zx)
-        return loss_weights
-    
+        return loss_weights.astype(log_snr.dtype)
+
     def get_elbo_weights(
         self,
         log_snr: chex.Array,
@@ -358,6 +378,7 @@ def create_mixing_schedule(
     mask_token_id: int | None = -1,
     hybrid_scale: float = 1.0,
     hybrid_shift: float = 0.0,
+    dtype: jnp.dtype = None,
 ) -> MixingSchedule:
     """
     Creates a mixing schedule combining a rate and a distribution.
@@ -416,6 +437,7 @@ def create_mixing_schedule(
                 mask_token_id=mask_token_id,
                 scale=hybrid_scale,
                 shift=hybrid_shift,
+                dtype=dtype,
             )
         else:
             raise ValueError(f"Unknown MixingDistribution type: {distribution}")

@@ -43,6 +43,7 @@ class DiffusionTrainer(Trainer):
         eval_dataset: Dataset | dict[str, Dataset] | None = None,
         append_eos_token: bool = True,
         seed: int | None = None,
+        dtype: jnp.dtype = None,
     ):
         assert isinstance(arguments, DiffusionConfig), "passed argument must be a `DiffusionConfig`."
         assert model is not None, "You must pass a `model` to the DiffusionTrainer."
@@ -63,6 +64,7 @@ class DiffusionTrainer(Trainer):
             mask_token_id=tokenizer.mask_token_id,
             hybrid_scale=arguments.hybrid_mixing_scale,
             hybrid_shift=arguments.hybrid_mixing_shift,
+            dtype=dtype,
         )
         self.loss_fn = GiddLoss(
             mixing_schedule=self.mixing_schedule,
