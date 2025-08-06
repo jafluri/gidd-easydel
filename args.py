@@ -32,4 +32,6 @@ def parse_args(
     parser.add_argument("--wandb_entity", type=str, default=default_wandb_entity, help="Weights & Biases entity for logging.")
     parser.add_argument("--data_files", type=str, default=default_data_files, help="Path to training data files.")
     parser.add_argument("--dtype", type=str, default="bf16", choices=["fp32", "bf16"], help="Training data type.")
+    parser.add_argument("--profiling", action=argparse.BooleanOptionalAction, default=False, help="Enable JAX profiling.")
+    parser.add_argument("--max_training_steps", type=int, default=100_000, help="Maximum number of training steps.")
     return parser.parse_args()

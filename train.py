@@ -116,8 +116,8 @@ def train(args):
             partition_axis=ed.PartitionAxis(),
             gradient_checkpointing=ed.EasyDeLGradientCheckPointers.NOTHING_SAVEABLE,
             # attn_mechanism=ed.AttentionMechanisms.FLASH_ATTN2,
-            # attn_mechanism=ed.AttentionMechanisms.SDPA,
-            attn_mechanism=ed.AttentionMechanisms.VANILLA,
+            attn_mechanism=ed.AttentionMechanisms.SDPA,
+            # attn_mechanism=ed.AttentionMechanisms.VANILLA,
             attn_dtype=dtype,
             attention_bias=False,
             mlp_bias=True,
@@ -207,7 +207,7 @@ def train(args):
         # This is MANDATORY for streaming datasets. It tells the trainer how many
         # steps constitute one "epoch". Should be ~ (total_dataset_size // total_batch_size).
         per_epoch_training_steps=98_000_000,
-        max_training_steps=100_000,
+        max_training_steps=args.max_training_steps,
         hybrid_mixing_scale=args.hybrid_mixing_scale,
         hybrid_mixing_shift=args.hybrid_mixing_shift,
         learning_rate=lr / hidden_size,
@@ -267,4 +267,9 @@ def train(args):
         trainer.memory_monitor.start_monitoring()
 
     logger.info("Starting training...")
-    trainer.train()
+
+    if args.profiling:
+        with jax.profiler.trace("/tmp/jax-trace"):
+            trainer.train()
+    else:
+        trainer.train()
