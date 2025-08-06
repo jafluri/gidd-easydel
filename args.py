@@ -31,5 +31,5 @@ def parse_args(
     parser.add_argument("--save_directory", type=str, default=default_save_directory, help="Directory to save model checkpoints.")
     parser.add_argument("--wandb_entity", type=str, default=default_wandb_entity, help="Weights & Biases entity for logging.")
     parser.add_argument("--data_files", type=str, default=default_data_files, help="Path to training data files.")
-    parser.add_argument("--dtype", type=str, default="fp32", choices=["fp32", "bf16"], help="Training data type.")
+    parser.add_argument("--dtype", type=str, default="bf16", choices=["fp32", "bf16"], help="Training data type.")
     return parser.parse_args()
