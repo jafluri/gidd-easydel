@@ -34,4 +34,5 @@ def parse_args(
     parser.add_argument("--dtype", type=str, default="bf16", choices=["fp32", "bf16"], help="Training data type.")
     parser.add_argument("--profiling", action=argparse.BooleanOptionalAction, default=False, help="Enable JAX profiling.")
     parser.add_argument("--max_training_steps", type=int, default=100_000, help="Maximum number of training steps.")
+    parser.add_argument("--attn_mechanism", type=str, default="vanilla", choices=["auto", "vanilla", "sdpa", "flash_attn2", "ring", "splash", "cudnn", "blockwise", "cuda_flash_attn2", "paged_attention"], help="Attention mechanism to use.")
     return parser.parse_args()
