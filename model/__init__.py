@@ -1,5 +1,5 @@
 from .gidd_configuration import GiddConfig
-from .modeling_gidd_flax import (
+from .modeling_gidd import (
     GiddModel,
     GiddForDiffusionLM,
 )

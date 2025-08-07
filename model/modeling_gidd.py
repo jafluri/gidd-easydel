@@ -143,7 +143,7 @@ class GiddAttention(AttentionModule):
             scale=config.weight_scaling,
             dtype=dtype,
             param_dtype=param_dtype,
-            use_bias=config.attention_bias,
+            use_bias=False,
             kernel_init=jax.nn.initializers.normal(config.init_scale),
             bias_init=jax.nn.initializers.zeros,
             precision=precision,
@@ -169,6 +169,18 @@ class GiddAttention(AttentionModule):
             self.hidden_size,
             rngs=rngs,
         )
+
+        self.attention_bias = config.attention_bias
+        if self.attention_bias:
+            self.k_bias = nn.Param(
+                jnp.zeros((self.num_attention_heads, self.head_dim), dtype=param_dtype),
+            )
+            self.v_bias = nn.Param(
+                jnp.zeros((self.num_attention_heads, self.head_dim), dtype=param_dtype),
+            )
+        else:
+            self.k_bias = None
+            self.v_bias = None
 
         self.rotary = self.config.get_basic_rope(
             self.dtype,
@@ -222,6 +234,12 @@ class GiddAttention(AttentionModule):
             noise_mask_kv = jnp.expand_dims(noise_mask, axis=-2)
             noise_attn_mask = jnp.expand_dims(noise_mask_q >= noise_mask_kv, axis=-3)
             attention_mask = jnp.logical_and(attention_mask, noise_attn_mask)
+        
+        if self.attention_bias:
+            attention_mask = jnp.concat([
+                jnp.ones(attention_mask.shape[:3] + (1,), dtype=attention_mask.dtype),
+                attention_mask,
+            ], axis=-1)
 
         def init_attention_bias():
             return jax.lax.select(
@@ -275,11 +293,13 @@ class GiddAttention(AttentionModule):
         query_states = query_states.reshape(qshape)
         key_states = key_states.reshape(kv_shape)
         value_states = value_states.reshape(kv_shape)
+
         (
             query_states,
             key_states,
             value_states,
         ) = self.apply_qkv_shardings(query_states, key_states, value_states)
+
 
         query_states, key_states = self.rotary(
             positions=position_ids,
@@ -304,17 +324,24 @@ class GiddAttention(AttentionModule):
             noise_mask=noise_mask,
         )
 
+        if self.attention_bias:
+            bias_shape = (batch_size, 1, self.num_attention_heads, self.head_dim)
+            k_bias = jnp.broadcast_to(self.k_bias, bias_shape)
+            v_bias = jnp.broadcast_to(self.v_bias, bias_shape)
+            key_states = jnp.concat([k_bias, key_states], axis=1)
+            value_states = jnp.concat([v_bias, value_states], axis=1)
+
         attentions = self.attention_performer.forward(
-            query_states=query_states, #* self.qk_scale,
+            query_states=query_states,
             key_states=key_states,
             value_states=value_states,
             mode=mode,
             bias=None,
-            # cache_metadata=cache_metadata,
-            # cache_view=cache_view,
-            # init_bias=init_attention_bias,
-            # attention_mask=attention_mask,
-            # segment_ids=segment_ids,
+            cache_metadata=cache_metadata,
+            cache_view=cache_view,
+            init_bias=init_attention_bias,
+            attention_mask=attention_mask,
+            segment_ids=segment_ids,
             causal=self.is_causal,
         )
 
@@ -323,8 +350,6 @@ class GiddAttention(AttentionModule):
                 attn_output=self._merge_heads(attentions.attention_outputs)
             )
         )
-
-        # jax.debug.breakpoint()
 
         return AttentionLayerOutput(
             attention_output=attn_output,
