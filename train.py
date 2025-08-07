@@ -115,11 +115,9 @@ def train(args):
             # sharding_axis_dims=(1, 1, 1, -1, 1),  # TP
             partition_axis=ed.PartitionAxis(),
             gradient_checkpointing=ed.EasyDeLGradientCheckPointers.NOTHING_SAVEABLE,
-            # attn_mechanism=ed.AttentionMechanisms.FLASH_ATTN2,
-            # attn_mechanism=ed.AttentionMechanisms.SDPA,
             attn_mechanism=args.attn_mechanism,
             attn_dtype=dtype,
-            attention_bias=False,
+            attention_bias=True,
             mlp_bias=True,
             # scan_layers=True,
         ),
@@ -129,26 +127,24 @@ def train(args):
         rngs=ed.Rngs(0),
     ).shard_model()  # Shard the newly created model across devices.
 
+
     class CustomDiffusionConfig(DiffusionConfig):
-        # override the `get_optimizer_and_scheduler` method to implement per-layer learning rates
+        # Hacky: override the `get_optimizer_and_scheduler` method to implement per-layer learning rates
         def get_optimizer_and_scheduler(self, steps):
             optimizer_kwargs = deepcopy(self.optimizer_kwargs)
-            steps = optimizer_kwargs.pop("steps")
-            warmup_steps = optimizer_kwargs.pop("warmup_steps", 0)
-            cooldown_steps = optimizer_kwargs.pop("cooldown_steps", 0)
             clip_grad = optimizer_kwargs.pop("clip_grad", None)
 
             bulk_schedule = wsd_lr_schedule(
-                total_steps=steps,
+                total_steps=args.max_training_steps,
                 base_lr=lr / hidden_size,
-                warmup_steps=warmup_steps,
-                cooldown_steps=cooldown_steps,
+                warmup_steps=args.warmup_steps,
+                cooldown_steps=args.cooldown_steps,
             )
             aux_schedule = wsd_lr_schedule(
-                total_steps=steps,
+                total_steps=args.max_training_steps,
                 base_lr=aux_lr,
-                warmup_steps=warmup_steps,
-                cooldown_steps=cooldown_steps,
+                warmup_steps=args.warmup_steps,
+                cooldown_steps=args.cooldown_steps,
             )
 
             def param_label_fn(params: tp.Any) -> str:
@@ -196,7 +192,19 @@ def train(args):
 
     # --- Configuration ---
     arguments = CustomDiffusionConfig(
-    # arguments = DiffusionConfig(
+        ## Diffusion arguments
+        beta_is_div=1.0,
+        noise_p_independent=0.5,  # 0.0,
+        noise_p_linear=0.1,
+        noise_mask_p_prompt=0.1,
+        noise_mask_p_infilling=0.1,
+        noise_mask_max_cond_frac=1.0,
+        mixing_rate="linear",
+        min_log_snr=-9.0,
+        max_log_snr=9.0,
+        hybrid_mixing_scale=args.hybrid_mixing_scale,
+        hybrid_mixing_shift=args.hybrid_mixing_shift,
+        ## Trainer arguments
         model_name="gidd",  # for wandb run name
         num_train_epochs=1,
         total_batch_size=total_batch_size,
@@ -208,12 +216,10 @@ def train(args):
         # steps constitute one "epoch". Should be ~ (total_dataset_size // total_batch_size).
         per_epoch_training_steps=98_000_000,
         max_training_steps=args.max_training_steps,
-        hybrid_mixing_scale=args.hybrid_mixing_scale,
-        hybrid_mixing_shift=args.hybrid_mixing_shift,
         learning_rate=lr / hidden_size,
         optimizer=ed.EasyDeLOptimizers.ADAMW,
         scheduler=ed.EasyDeLSchedulers.COSINE,
-        warmup_steps=2000,
+        warmup_steps=args.warmup_steps,
         weight_decay=0.02,
         save_directory=args.save_directory,
         save_steps=1_000,
@@ -223,7 +229,7 @@ def train(args):
         report_steps=50,
         log_steps=50,
         progress_bar_type="json",
-        # track_memory=20.0,
+        track_memory=args.track_memory,
         use_grain=False,
     )
 
