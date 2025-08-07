@@ -110,7 +110,6 @@ class GiddConfig(EasyDeLBaseConfig):
         resid_scale: float = 4.0,
         rms_norm_eps: float = 1e-6,
         use_qk_norm: bool = True,
-        qk_norm_eps: float = 1e-6,
         init_scale: float = 0.4,
         emb_init_scale: float = 0.1,
         head_init_scale: float = 0.0,
@@ -156,7 +155,6 @@ class GiddConfig(EasyDeLBaseConfig):
         self.head_scaling = head_scaling
         self.rms_norm_eps = rms_norm_eps
         self.use_qk_norm = use_qk_norm
-        self.qk_norm_eps = qk_norm_eps
         self.pretraining_tp = pretraining_tp
         self.tie_word_embeddings = tie_word_embeddings
         self.gradient_checkpointing = gradient_checkpointing
@@ -179,13 +177,13 @@ class GiddConfig(EasyDeLBaseConfig):
         return (
             (r"embed_tokens/embedding", pmag.resolve(ColumnWise)),
             (r"self_attn/(q_proj|k_proj|v_proj)/kernel", pmag.resolve(ColumnWise)),
-            (f"qk_scale/kernel", pmag.resolve(Replicated)),
+            (f"(k|v)_bias", pmag.resolve(Replicated)),
             (r"self_attn/o_proj/kernel", pmag.resolve(RowWise)),
             (r"self_attn/.*proj/bias", pmag.resolve(Replicated)),
             (r"mlp/(gate_proj|up_proj)/kernel", pmag.resolve(ColumnWise)),
             (r"mlp/down_proj/kernel", pmag.resolve(RowWise)),
             (r"mlp/.*proj/bias", pmag.resolve(Replicated)),
-            (r".*(input_layernorm|post_attention_layernorm|norm)/kernel", pmag.resolve(Replicated)),
+            (r".*(attn_layernorm|mlp_layernorm|norm)/kernel", pmag.resolve(Replicated)),
             (r"lm_head/kernel", pmag.resolve(ColumnWise)),
             (r"score/kernel", pmag.resolve(RowWise)),
             (r".*bias", pmag.resolve(Replicated)),

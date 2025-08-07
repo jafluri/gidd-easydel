@@ -53,6 +53,31 @@ from .gidd_configuration import GiddConfig
 
 
 
+class GiddRMSNorm(nn.Module):
+    def __init__(
+        self,
+        config: GiddConfig,
+        dtype: jnp.dtype = jnp.float32,
+        param_dtype: jnp.dtype = jnp.float32,
+    ):
+        self.config = config
+        self.epsilon = self.config.rms_norm_eps
+        self.dtype = dtype
+        self.param_dtype = param_dtype
+        self.kernel = nn.Param(jnp.zeros(self.config.hidden_size, dtype=param_dtype))
+        # self.bias = nn.Param(jnp.zeros(self.config.hidden_size, dtype=param_dtype))
+
+    def __call__(self, hidden_states):
+        variance = hidden_states.astype(jnp.float32)
+        variance = jnp.power(variance, 2)
+        variance = variance.mean(-1, keepdims=True)
+        hidden_states = hidden_states / jnp.sqrt(variance + self.epsilon)
+
+        return (
+            (1 + self.kernel.value) * hidden_states #+ self.bias.value
+        ).astype(self.dtype)
+
+
 
 class GiddMLP(nn.Module):
     def __init__(
@@ -123,20 +148,25 @@ class GiddAttention(AttentionModule):
         self.is_causal = config.is_causal
 
         self.use_qk_norm = config.use_qk_norm
-        self.qk_norm_eps = config.qk_norm_eps
         if self.use_qk_norm:
-            # self.qk_scale = nn.Param(
-            #     jnp.full(
-            #         (1, 1, self.num_attention_heads, 1),
-            #         2 * jnp.log(config.max_position_embeddings),
-            #         dtype=self.param_dtype,
-            #     ),
-            # )
-            self.qk_scale = 1.0
             self.q_norm = GiddRMSNorm(config, dtype=dtype, param_dtype=jnp.float32)
             self.k_norm = GiddRMSNorm(config, dtype=dtype, param_dtype=jnp.float32)
         else:
-            self.qk_scale = 1.0
+            self.q_norm = None
+            self.k_norm = None
+
+        self.attention_bias = config.attention_bias
+        if self.attention_bias:
+            print("Using attention bias in GiddAttention")
+            self.k_bias = nn.Param(
+                jnp.zeros((self.num_attention_heads, self.head_dim), dtype=param_dtype),
+            )
+            self.v_bias = nn.Param(
+                jnp.zeros((self.num_attention_heads, self.head_dim), dtype=param_dtype),
+            )
+        else:
+            self.k_bias = None
+            self.v_bias = None
 
         linear_class = partial(
             ParallelLinear,
@@ -170,18 +200,6 @@ class GiddAttention(AttentionModule):
             rngs=rngs,
         )
 
-        self.attention_bias = config.attention_bias
-        if self.attention_bias:
-            self.k_bias = nn.Param(
-                jnp.zeros((self.num_attention_heads, self.head_dim), dtype=param_dtype),
-            )
-            self.v_bias = nn.Param(
-                jnp.zeros((self.num_attention_heads, self.head_dim), dtype=param_dtype),
-            )
-        else:
-            self.k_bias = None
-            self.v_bias = None
-
         self.rotary = self.config.get_basic_rope(
             self.dtype,
             self.head_dim,
@@ -192,7 +210,6 @@ class GiddAttention(AttentionModule):
         self.attention_performer = FlexibleAttentionModule(
             base_config=self.config,
             softmax_scale=self.head_dim**-0.5,
-            # softmax_scale=1.0 if self.use_qk_norm else self.head_dim**-0.5,
             dropout_prob=0.0,
             soft_cap=self.config.attn_soft_cap,
             rngs=rngs,
@@ -249,9 +266,6 @@ class GiddAttention(AttentionModule):
             )
 
         return key, value, attention_mask, init_attention_bias, cache_view
-    
-    def _norm(self, x: jnp.ndarray) -> jnp.ndarray:
-        return x * jax.lax.rsqrt(jnp.square(x).sum(-1, keepdims=True) + self.qk_norm_eps)
 
     def __call__(
         self,
@@ -275,8 +289,6 @@ class GiddAttention(AttentionModule):
         if self.use_qk_norm:
             query_states = self.q_norm(query_states)
             key_states = self.k_norm(key_states)
-            # query_states = self._norm(query_states)
-            # key_states = self._norm(key_states)
 
         qshape = (
             batch_size,
@@ -357,31 +369,6 @@ class GiddAttention(AttentionModule):
             attention_logits=attentions.attention_logits if output_attentions else None,
             cache_view=cache_view,
         )
-
-
-class GiddRMSNorm(nn.Module):
-    def __init__(
-        self,
-        config: GiddConfig,
-        dtype: jnp.dtype = jnp.float32,
-        param_dtype: jnp.dtype = jnp.float32,
-    ):
-        self.config = config
-        self.epsilon = self.config.rms_norm_eps
-        self.dtype = dtype
-        self.param_dtype = param_dtype
-        self.kernel = nn.Param(jnp.zeros(self.config.hidden_size, dtype=param_dtype))
-        # self.bias = nn.Param(jnp.zeros(self.config.hidden_size, dtype=param_dtype))
-
-    def __call__(self, hidden_states):
-        variance = hidden_states.astype(jnp.float32)
-        variance = jnp.power(variance, 2)
-        variance = variance.mean(-1, keepdims=True)
-        hidden_states = hidden_states / jnp.sqrt(variance + self.epsilon)
-
-        return (
-            (1 + self.kernel.value) * hidden_states #+ self.bias.value
-        ).astype(self.dtype)
 
 
 class GiddLayer(nn.Module):
