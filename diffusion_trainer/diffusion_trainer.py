@@ -137,7 +137,7 @@ class DiffusionTrainer(Trainer):
         if self.arguments.noise_p_linear > 0:
             # Sample linear SNR based on token position
             is_linear = ~is_independent & (r < self.arguments.noise_p_linear + self.arguments.noise_p_independent)
-            linear_t = jnp.linspace(0, 1, seq_len + 2, device=self.device)[1:-1]
+            linear_t = jnp.linspace(0, 1, seq_len + 2)[1:-1]
             linear_log_snr = self.mixing_schedule.log_snr_from_time(linear_t)
             log_snr = jnp.where(is_linear[:, None], linear_log_snr[None, :], log_snr)
 
