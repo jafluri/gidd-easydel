@@ -28,7 +28,7 @@ EXECUTION_ENV_VARS = {
 }
 
 # Additional pip packages to install on each Ray worker environment.
-PIP_PACKAGES = []
+PIP_PACKAGES = ["dask"]
 
 # Print the environment variables for verification.
 pprint(EXECUTION_ENV_VARS)
