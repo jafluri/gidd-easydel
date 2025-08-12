@@ -157,7 +157,6 @@ class GiddAttention(AttentionModule):
 
         self.attention_bias = config.attention_bias
         if self.attention_bias:
-            print("Using attention bias in GiddAttention")
             self.k_bias = nn.Param(
                 jnp.zeros((self.num_attention_heads, self.head_dim), dtype=param_dtype),
             )

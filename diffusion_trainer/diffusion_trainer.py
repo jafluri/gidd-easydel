@@ -206,6 +206,12 @@ class DiffusionTrainer(Trainer):
             infill_mask = has_infill_mask[:, None] & infill_mask
             noise_mask = noise_mask & ~infill_mask
 
+        # attn_mask = jnp.ones((batch_size, seq_len, seq_len), dtype=bool)
+        # if self.arguments.attn_mask_pattern == "lognormal":
+        #     rand = 5 * jax.random.lognormal(key, 1.0, (batch_size, seq_len))
+        #     order = jnp.arange(seq_len)[None, :] + rand
+        #     attn_mask = order[..., None] >= order[..., None, :]
+
         return noise_mask
 
     def configure_functions(self) -> TrainerConfigureFunctionOutput:
