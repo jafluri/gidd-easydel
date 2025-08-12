@@ -85,6 +85,13 @@ def train(args):
     head_scale = args.head_scale  # 512
     adam_eps = args.adam_eps  # 1e-8
 
+    total_steps = args.max_training_steps  # 100000
+    warmup_steps = args.warmup_steps  # 2000
+    if args.cooldown_steps < 1.0:
+        cooldown_steps = int(args.max_training_steps * args.cooldown_steps)
+    else:
+        cooldown_steps = int(args.cooldown_steps)
+
     optimizer_fn = {
         "laprop": lapropw,
         "adam": optax.adamw,
@@ -117,7 +124,7 @@ def train(args):
             gradient_checkpointing=ed.EasyDeLGradientCheckPointers.NOTHING_SAVEABLE,
             attn_mechanism=args.attn_mechanism,
             attn_dtype=dtype,
-            attention_bias=True,
+            attention_bias=args.attn_bias,
             mlp_bias=True,
             # scan_layers=True,
         ),
@@ -135,16 +142,16 @@ def train(args):
             clip_grad = optimizer_kwargs.pop("clip_grad", None)
 
             bulk_schedule = wsd_lr_schedule(
-                total_steps=args.max_training_steps,
+                total_steps=total_steps,
                 base_lr=lr / hidden_size,
-                warmup_steps=args.warmup_steps,
-                cooldown_steps=args.cooldown_steps,
+                warmup_steps=warmup_steps,
+                cooldown_steps=cooldown_steps,
             )
             aux_schedule = wsd_lr_schedule(
-                total_steps=args.max_training_steps,
+                total_steps=total_steps,
                 base_lr=aux_lr,
-                warmup_steps=args.warmup_steps,
-                cooldown_steps=args.cooldown_steps,
+                warmup_steps=warmup_steps,
+                cooldown_steps=cooldown_steps,
             )
 
             def param_label_fn(params: tp.Any) -> str:
@@ -205,7 +212,9 @@ def train(args):
         hybrid_mixing_scale=args.hybrid_mixing_scale,
         hybrid_mixing_shift=args.hybrid_mixing_shift,
         ## Trainer arguments
-        model_name="gidd",  # for wandb run name
+        model_name="gidd",  # for wandb project name
+        wandb_name=args.wandb_name,
+        wandb_tags=args.wandb_tags.split(",") if args.wandb_tags else None
         num_train_epochs=1,
         total_batch_size=total_batch_size,
         use_wandb=True,
@@ -215,7 +224,7 @@ def train(args):
         # This is MANDATORY for streaming datasets. It tells the trainer how many
         # steps constitute one "epoch". Should be ~ (total_dataset_size // total_batch_size).
         per_epoch_training_steps=98_000_000,
-        max_training_steps=args.max_training_steps,
+        max_training_steps=total_steps,
         learning_rate=lr / hidden_size,
         optimizer=ed.EasyDeLOptimizers.ADAMW,
         scheduler=ed.EasyDeLSchedulers.COSINE,
@@ -223,14 +232,16 @@ def train(args):
         weight_decay=0.02,
         save_directory=args.save_directory,
         save_steps=1_000,
-        save_total_limit=0,
-        save_optimizer_state=False,
+        save_total_limit=1,
+        save_optimizer_state=True,
         clip_grad=1.0,
         report_steps=50,
         log_steps=50,
+        metrics_aggregation="mean",
         progress_bar_type="json",
         track_memory=args.track_memory,
         use_grain=False,
+        weight_distribution_log_steps=200,
     )
 
     df = dd.read_parquet(
