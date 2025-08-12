@@ -13,6 +13,8 @@ WANDB_ENTITY = os.environ.get("WANDB_ENTITY", None)
 
 DATA_FILES = os.environ.get("DATA_FILES", "gs://nemotron-cc_europe-west4/Nemotron-CC/**/*.parquet")
 
+TPU_VERSION = os.environ.get("TPU_VERSION", "v3-8")
+
 # --- Environment and TPU Configuration ---
 # These environment variables are passed to each Ray worker to ensure they have
 # access to necessary tokens and use efficient shared memory for caching.
@@ -33,7 +35,7 @@ pprint(EXECUTION_ENV_VARS)
 
 # Defines the TPU environment for Ray, specifying the accelerator type and worker setup.
 acc_config = TpuAcceleratorConfig(
-    "v3-8",
+    TPU_VERSION,
     execution_env={
         "env_vars": EXECUTION_ENV_VARS,
         "pip": PIP_PACKAGES,
