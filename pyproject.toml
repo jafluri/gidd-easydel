@@ -9,4 +9,4 @@ version = "0.0.1"
 readme = "README.md"
 
 [tool.setuptools]
-package-dir = { "gidd_easydel" = "src" }
+package-dir = { "gidd_easydel" = "gidd_easydel" }
