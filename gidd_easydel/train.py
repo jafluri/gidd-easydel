@@ -1,5 +1,5 @@
+import easydel
 
-import functools
 import random
 import typing as tp
 from copy import deepcopy
@@ -13,8 +13,7 @@ import chex
 import wandb
 from jax import numpy as jnp
 from transformers import AutoTokenizer
-from datasets import load_dataset, IterableDataset
-from eformer.optimizers import OptimizerFactory, SchedulerFactory, SchedulerConfig
+from datasets import IterableDataset
 
 from .diffusion_trainer import DiffusionTrainer, DiffusionConfig
 from .model import GiddForDiffusionLM, GiddConfig
