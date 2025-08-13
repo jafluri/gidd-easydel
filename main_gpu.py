@@ -2,7 +2,7 @@ import os
 from pprint import pprint
 
 from args import parse_args
-from train import train
+from gidd_easydel.train import train
 
 
 SAVE_DIRECTORY = os.environ.get("SAVE_DIRECTORY", "outputs/diffusion_trainer")

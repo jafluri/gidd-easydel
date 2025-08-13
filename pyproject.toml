@@ -1,0 +1,12 @@
+
+[build-system]
+requires = ["setuptools"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "gidd-easydel"
+version = "0.0.1"
+readme = "README.md"
+
+[tool.setuptools]
+package-dir = { "gidd_easydel" = "src" }

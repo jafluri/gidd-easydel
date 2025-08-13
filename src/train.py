@@ -16,9 +16,9 @@ from transformers import AutoTokenizer
 from datasets import load_dataset, IterableDataset
 from eformer.optimizers import OptimizerFactory, SchedulerFactory, SchedulerConfig
 
-from diffusion_trainer import DiffusionTrainer, DiffusionConfig
-from model import GiddForDiffusionLM, GiddConfig
-from optimizer import lapropw
+from .diffusion_trainer import DiffusionTrainer, DiffusionConfig
+from .model import GiddForDiffusionLM, GiddConfig
+from .optimizer import lapropw
 
 
 def wsd_lr_schedule(total_steps: int, base_lr: float, warmup_steps: int = 0, cooldown_steps: int = 0) -> tp.Callable[[chex.Numeric], chex.Numeric]:

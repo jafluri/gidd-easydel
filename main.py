@@ -57,7 +57,7 @@ def main():
     """
     # Imports are inside the function to ensure they are available in the
     # separate Ray worker process.
-    from train import train  # noqa
+    from gidd_easydel.train import train  # noqa
 
     try:
         pprint(ARGS)
