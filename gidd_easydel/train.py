@@ -235,7 +235,7 @@ def train(args):
         save_optimizer_state=True,
         clip_grad=1.0,
         report_steps=50,
-        log_steps=10,
+        log_steps=100,
         metrics_aggregation="mean",
         # progress_bar_type="json",
         track_memory=args.track_memory,
