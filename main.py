@@ -5,7 +5,7 @@ import ray
 from eformer.executor.ray import TpuAcceleratorConfig, execute
 
 # Initialize Ray for distributed computing. This must be done once per application.
-ray.init()
+ray.init(runtime_env={"py_modules": [os.path.join(os.getcwd(), "gidd_easydel")]})
 
 SAVE_DIRECTORY = os.environ.get("SAVE_DIRECTORY", "outputs/diffusion_trainer")
 
