@@ -38,7 +38,7 @@ def wsd_lr_schedule(total_steps: int, base_lr: float, warmup_steps: int = 0, coo
     def sqrt1m_schedule(init_value: float, decay_steps: int) -> tp.Callable[[chex.Numeric], chex.Numeric]:
         def schedule(count: chex.Numeric) -> chex.Numeric:
             count = jnp.minimum(count, decay_steps)
-            return init_value * (1 - (count / decay_steps)**0.5)
+            return init_value * (1 - (count / max(1, decay_steps))**0.5)
         return schedule
 
     return optax.schedules.join_schedules([
