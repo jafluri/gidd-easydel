@@ -278,7 +278,8 @@ def train(args):
         dtype=dtype,
     )
 
-    wandb.config.update(vars(args), allow_val_change=True)
+    if trainer.arugments.can_log_metrics:
+        wandb.config.update(vars(args), allow_val_change=True)
 
     if trainer.memory_monitor is not None:
         trainer.memory_monitor.start_monitoring()
