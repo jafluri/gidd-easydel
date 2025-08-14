@@ -15,6 +15,7 @@ from jax import numpy as jnp
 from transformers import AutoTokenizer
 from datasets import IterableDataset
 
+from .sampler import BufferedPartitionSampler
 from .diffusion_trainer import DiffusionTrainer, DiffusionConfig
 from .model import GiddForDiffusionLM, GiddConfig
 from .optimizer import lapropw
@@ -243,18 +244,18 @@ def train(args):
         weight_distribution_log_steps=200,
     )
 
-    df = dd.read_parquet(
+    ddf = dd.read_parquet(
         args.data_files,
         engine="pyarrow",
         columns=["tokens"],
     )
-    shuffled_df = df.sample(frac=1.0, random_state=random.randint(0, 2**32 - 1))
 
-    def generate_dataset(df, tokens_field="tokens"):
-        for row in df.itertuples(index=False):
-            yield {tokens_field: row[0]}
+    sampler = BufferedPartitionSampler(ddf, K=32, random_state=random.randint(0, 2**32 - 1))
 
-    train_dataset = IterableDataset.from_generator(generate_dataset, gen_kwargs={"df": shuffled_df})
+    def generate_dataset():
+        yield from sampler
+
+    train_dataset = IterableDataset.from_generator(generate_dataset)
 
     # train_dataset = load_dataset(
     #     "parquet",
