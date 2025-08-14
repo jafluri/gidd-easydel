@@ -3,9 +3,28 @@ import dask.dataframe as dd
 
 class BufferedPartitionSampler:
     def __init__(self, ddf: dd.DataFrame, K: int, loop: bool = True, random_state: int | None = None):
+        """
+        Initialize a buffered random sampler over Dask partitions.
+
+        Args:
+            ddf (dask.dataframe.DataFrame):
+                The input DataFrame; each Dask partition is treated as an independent shard.
+            K (int):
+                Target number of active partitions in the buffer. Sampling proceeds only when the
+                buffer is full. If the dataset has fewer than K partitions, the target becomes the
+                number of available partitions.
+            loop (bool, default False):
+                If True, once all partitions have been consumed the sampler reshuffles the partition
+                order and continues; if False, iteration stops when all partitions are exhausted.
+            random_state (int | None, default None):
+                Seed for numpy.random.default_rng used for partition order shuffling and per-partition
+                row shuffling.
+        """
+
         self.ddf = ddf
         self.K = max(1, int(K))
         self.loop = bool(loop)
+        self.random_state = random_state
         self.rng = np.random.default_rng(random_state)
         self.nparts = ddf.npartitions
         self.cols = list(ddf.columns)
@@ -14,6 +33,9 @@ class BufferedPartitionSampler:
         self._buffer = []
         self._reset_order()
         self._fill_to_target(self._target_len())
+
+    def __reduce__(self):
+        return (self.__class__, (self.ddf, self.K, self.loop, self.random_state))
 
     def __iter__(self):
         return self
