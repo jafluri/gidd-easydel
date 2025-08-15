@@ -175,7 +175,7 @@ def train(args):
                 return labels
 
 
-            opt_kwargs = dict(b1=0.9, b2=0.99, eps=adam_eps / hidden_size / num_layers)
+            opt_kwargs = dict(b1=args.beta1, b2=args.beta2, eps=adam_eps / hidden_size / num_layers)
             optimizer = optax.multi_transform({
                 "bulk_params": optimizer_fn(learning_rate=bulk_schedule, weight_decay=weight_decay * hidden_size, **opt_kwargs),
                 "ln_params": optimizer_fn(learning_rate=aux_schedule, weight_decay=ln_wd, **opt_kwargs),
@@ -250,7 +250,7 @@ def train(args):
         columns=["tokens"],
     )
 
-    sampler = BufferedPartitionSampler(ddf, K=32, random_state=random.randint(0, 2**32 - 1))
+    sampler = BufferedPartitionSampler(ddf, K=128, random_state=random.randint(0, 2**32 - 1))
 
     def generate_dataset():
         yield from sampler
