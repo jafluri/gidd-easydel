@@ -1,5 +1,6 @@
 import easydel
 
+import fsspec
 import random
 import typing as tp
 from copy import deepcopy
@@ -15,7 +16,7 @@ from jax import numpy as jnp
 from transformers import AutoTokenizer
 from datasets import IterableDataset
 
-from .sampler import BufferedPartitionSampler
+from .sampler import BufferedPartitionSampler, ShuffledBucketSampler
 from .diffusion_trainer import DiffusionTrainer, DiffusionConfig
 from .model import GiddForDiffusionLM, GiddConfig
 from .optimizer import lapropw
@@ -244,13 +245,27 @@ def train(args):
         weight_distribution_log_steps=200,
     )
 
-    ddf = dd.read_parquet(
-        args.data_files,
-        engine="pyarrow",
-        columns=["tokens"],
-    )
+    # ddf = dd.read_parquet(
+    #     args.data_files,
+    #     engine="pyarrow",
+    #     columns=["tokens"],
+    # )
 
-    sampler = BufferedPartitionSampler(ddf, K=128, random_state=random.randint(0, 2**32 - 1))
+    # sampler = BufferedPartitionSampler(ddf, K=128, random_state=random.randint(0, 2**32 - 1))
+
+    assert not args.data_files.endswith(".parquet")
+
+    fs, _, _ = fsspec.get_fs_token_paths(args.data_files)
+    bucket_paths = sorted(fs.glob(args.data_files))
+
+    print(f"Found {len(bucket_paths)} buckets in {args.data_files}")
+
+    ddfs = [
+        dd.read_parquet(bucket_path, engine="pyarrow", columns=["tokens"])
+        for bucket_path in bucket_paths
+    ]
+
+    sampler = ShuffledBucketSampler(ddfs, random_state=random.randint(0, 2**32 - 1))
 
     def generate_dataset():
         yield from sampler
