@@ -163,9 +163,9 @@ class ShuffledBucketSampler:
             entry = self._buffer[j]
             row = self._next_row_from_entry(entry)
             if row is not None:
-                print("yielding row")
+                # print("yielding row")
                 return row
-            print("removing empty entry")
+            # print("removing empty entry")
             del self._buffer[j]
             self._fill_to_target(target)
             if len(self._buffer) < target:
