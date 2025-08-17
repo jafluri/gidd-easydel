@@ -278,6 +278,9 @@ def train(args):
 
     train_dataset = IterableDataset.from_generator(generate_dataset)
 
+    print("[test] printing one example:")
+    print(next(iter(train_dataset)))
+
     # train_dataset = load_dataset(
     #     "parquet",
     #     data_files=args.data_files,
