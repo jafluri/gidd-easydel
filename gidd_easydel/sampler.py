@@ -46,9 +46,6 @@ class BufferedPartitionSampler:
         self._reset_order()
         self._fill_to_target(self._target_len())
 
-        print(f"num. partitions: {self.nparts}")
-        self._i = 0
-
     def __reduce__(self):
         return (self.__class__, (self.ddf, self.K, self.loop, self.random_state))
 
@@ -56,8 +53,6 @@ class BufferedPartitionSampler:
         return self
 
     def __next__(self):
-        self._i += 1
-        print(self._i)
         target = self._target_len()
         if len(self._buffer) < target:
             self._fill_to_target(target)
@@ -67,12 +62,10 @@ class BufferedPartitionSampler:
         max_tries = self.nparts + target + 1
         while True:
             j = int(self.rng.integers(0, len(self._buffer)))
-            print("got:", j, len(self._buffer))
             try:
                 row = next(self._buffer[j]["it"])
                 return dict(zip(self.cols, row))
             except StopIteration:
-                print("got stopiteration")
                 del self._buffer[j]
                 self._fill_to_target(target)
                 if len(self._buffer) < target:
@@ -171,8 +164,6 @@ class ShuffledBucketSampler:
         return self
 
     def __next__(self):
-        self._i += 1
-        print(self._i)
         target = self._target_len()
         if len(self._buffer) < target:
             self._fill_to_target(target)
@@ -185,9 +176,7 @@ class ShuffledBucketSampler:
             entry = self._buffer[j]
             row = self._next_row_from_entry(entry)
             if row is not None:
-                # print("yielding row")
                 return row
-            # print("removing empty entry")
             del self._buffer[j]
             self._fill_to_target(target)
             if len(self._buffer) < target:

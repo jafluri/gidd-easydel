@@ -244,7 +244,6 @@ def train(args):
         track_memory=args.track_memory,
         use_grain=False,
         weight_distribution_log_steps=200,
-        # tf_data_prefetch_buffer_size=0,
     )
 
     if args.sampler == "simple":
