@@ -11,6 +11,7 @@ import dask.dataframe as dd
 import jax
 import optax
 import chex
+import tqdm
 import wandb
 from jax import numpy as jnp
 from transformers import AutoTokenizer
@@ -267,7 +268,7 @@ def train(args):
             columns=["tokens"],
             filesystem=fs,
         )
-        for bucket_path in bucket_paths
+        for bucket_path in tqdm.tqdm(bucket_paths, desc="Loading dataset")
     ]
 
     sampler = ShuffledBucketSampler(ddfs, random_state=random.randint(0, 2**32 - 1))
