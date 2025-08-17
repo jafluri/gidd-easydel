@@ -252,7 +252,10 @@ def train(args):
         columns=["tokens"],
     )
 
-    sampler = BufferedPartitionSampler(ddf, K=128, random_state=random.randint(0, 2**32 - 1))
+    sampler = ddf.sample(frac=1.0)
+
+    # sampler = BufferedPartitionSampler(ddf, K=128, random_state=random.randint(0, 2**32 - 1))
+
 
     # assert not args.data_files.endswith(".parquet")
 
