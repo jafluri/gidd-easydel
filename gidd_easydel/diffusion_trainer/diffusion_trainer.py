@@ -93,6 +93,7 @@ class DiffusionTrainer(Trainer):
                 append_eos_token=append_eos_token,
             )
 
+        print("entering BaseTrainer")
         super().__init__(
             arguments=arguments,
             dataset_train=train_dataset,

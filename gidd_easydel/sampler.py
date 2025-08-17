@@ -2,6 +2,17 @@ import numpy as np
 import dask.dataframe as dd
 from typing import List
 
+
+class BasicSampler:
+    def __init__(self, ddf: dd.DataFrame):
+        self.ddf = ddf
+        self.cols = list(ddf.columns)
+
+    def __iter__(self):
+        for row in self.ddf.sample(frac=1.0).itertuples(index=False, name=None):
+            yield dict(zip(self.cols, row))
+
+
 class BufferedPartitionSampler:
     def __init__(self, ddf: dd.DataFrame, K: int, loop: bool = True, random_state: int | None = None):
         """
@@ -35,6 +46,9 @@ class BufferedPartitionSampler:
         self._reset_order()
         self._fill_to_target(self._target_len())
 
+        print(f"num. partitions: {self.nparts}")
+        self._i = 0
+
     def __reduce__(self):
         return (self.__class__, (self.ddf, self.K, self.loop, self.random_state))
 
@@ -42,6 +56,8 @@ class BufferedPartitionSampler:
         return self
 
     def __next__(self):
+        self._i += 1
+        print(self._i)
         target = self._target_len()
         if len(self._buffer) < target:
             self._fill_to_target(target)
@@ -51,10 +67,12 @@ class BufferedPartitionSampler:
         max_tries = self.nparts + target + 1
         while True:
             j = int(self.rng.integers(0, len(self._buffer)))
+            print("got:", j, len(self._buffer))
             try:
                 row = next(self._buffer[j]["it"])
                 return dict(zip(self.cols, row))
             except StopIteration:
+                print("got stopiteration")
                 del self._buffer[j]
                 self._fill_to_target(target)
                 if len(self._buffer) < target:
@@ -144,6 +162,8 @@ class ShuffledBucketSampler:
         self._reset_order()
         self._fill_to_target(self._target_len())
 
+        self._i = 0
+
     def __reduce__(self):
         return (self.__class__, (self.ddfs, self.K, self.loop, self.random_state))
 
@@ -151,6 +171,8 @@ class ShuffledBucketSampler:
         return self
 
     def __next__(self):
+        self._i += 1
+        print(self._i)
         target = self._target_len()
         if len(self._buffer) < target:
             self._fill_to_target(target)
