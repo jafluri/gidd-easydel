@@ -40,6 +40,7 @@ def parse_args(
     parser.add_argument("--wandb_name", type=str, default=None, help="Weights & Biases run name.")
     parser.add_argument("--wandb_tags", type=str, default=None, help="Weights & Biases tags for the run.")
     parser.add_argument("--data_files", type=str, default=default_data_files, help="Path to training data files.")
+    parser.add_argument("--sampler", type=str, default="buckets", choices=["buckets", "buffered", "simple"], help="Sampler to use.")
     parser.add_argument("--dtype", type=str, default="bf16", choices=["fp32", "bf16"], help="Training data type.")
     parser.add_argument("--profiling", action=argparse.BooleanOptionalAction, default=False, help="Enable JAX profiling.")
     parser.add_argument("--track_memory", type=float, default=None, help="Track memory usage during training.")

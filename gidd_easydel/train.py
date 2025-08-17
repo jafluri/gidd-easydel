@@ -17,7 +17,7 @@ from jax import numpy as jnp
 from transformers import AutoTokenizer
 from datasets import IterableDataset
 
-from .sampler import BufferedPartitionSampler, ShuffledBucketSampler
+from .sampler import BufferedPartitionSampler, ShuffledBucketSampler, BasicSampler
 from .diffusion_trainer import DiffusionTrainer, DiffusionConfig
 from .model import GiddForDiffusionLM, GiddConfig
 from .optimizer import lapropw
@@ -244,45 +244,50 @@ def train(args):
         track_memory=args.track_memory,
         use_grain=False,
         weight_distribution_log_steps=200,
+        tf_data_prefetch_buffer_size=0,
     )
 
-    ddf = dd.read_parquet(
-        args.data_files,
-        engine="pyarrow",
-        columns=["tokens"],
-    )
+    if args.sampler == "simple":
+        ddf = dd.read_parquet(
+            args.data_files,
+            engine="pyarrow",
+            columns=["tokens"],
+        )
+        sampler = BasicSampler(ddf)
+    elif args.sampler == "buffered":
+        ddf = dd.read_parquet(
+            args.data_files,
+            engine="pyarrow",
+            columns=["tokens"],
+        )
+        sampler = BufferedPartitionSampler(ddf, K=128, random_state=random.randint(0, 2**32 - 1))
+    elif args.sampler == "buckets":
+        assert not args.data_files.endswith(".parquet")
 
-    sampler = ddf.sample(frac=1.0)
+        fs, _, _ = fsspec.get_fs_token_paths(args.data_files)
+        bucket_paths = sorted(fs.ls(args.data_files))
 
-    # sampler = BufferedPartitionSampler(ddf, K=128, random_state=random.randint(0, 2**32 - 1))
+        print(f"Found {len(bucket_paths)} buckets in {args.data_files}")
 
+        ddfs = [
+            dd.read_parquet(
+                bucket_path.rstrip("/") + "/**/*.parquet",
+                engine="pyarrow",
+                columns=["tokens"],
+                filesystem=fs,
+            )
+            for bucket_path in tqdm.tqdm(bucket_paths, desc="Loading dataset")
+        ]
 
-    # assert not args.data_files.endswith(".parquet")
-
-    # fs, _, _ = fsspec.get_fs_token_paths(args.data_files)
-    # bucket_paths = sorted(fs.glob(args.data_files))
-
-    # print(f"Found {len(bucket_paths)} buckets in {args.data_files}")
-
-    # ddfs = [
-    #     dd.read_parquet(
-    #         bucket_path.rstrip("/") + "/**/*.parquet",
-    #         engine="pyarrow",
-    #         columns=["tokens"],
-    #         filesystem=fs,
-    #     )
-    #     for bucket_path in tqdm.tqdm(bucket_paths, desc="Loading dataset")
-    # ]
-
-    # sampler = ShuffledBucketSampler(ddfs, random_state=random.randint(0, 2**32 - 1))
+        sampler = ShuffledBucketSampler(ddfs, random_state=random.randint(0, 2**32 - 1))
+    else:
+        raise ValueError(f"Unknown sampler: {args.sampler}")
 
     def generate_dataset():
-        yield from sampler
+        for x in sampler:
+            yield x
 
     train_dataset = IterableDataset.from_generator(generate_dataset)
-
-    print("[test] printing one example:")
-    print(next(iter(train_dataset)))
 
     # train_dataset = load_dataset(
     #     "parquet",
