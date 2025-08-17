@@ -102,6 +102,15 @@ class BufferedPartitionSampler:
             self._buffer.append(self._make_entry(pid))
 
 
+def iter_rows_by_partition(ddf: dd.DataFrame):
+    for part in ddf.to_delayed():
+        pdf = part.compute()
+        try:
+            for row in pdf.itertuples(index=False, name=None):
+                yield row
+        finally:
+            del pdf
+
 class ShuffledBucketSampler:
     def __init__(self, ddfs: List[dd.DataFrame], K: int | None = None, loop: bool = True, random_state: int | None = None):
         """
@@ -122,18 +131,13 @@ class ShuffledBucketSampler:
                 Seed for numpy.random.default_rng used for bucket order shuffling and random
                 bucket selection.
         """
-        
         self.ddfs = list(ddfs)
         self.K = len(self.ddfs) if K is None else max(1, int(K))
         self.loop = bool(loop)
         self.random_state = random_state
         self.rng = np.random.default_rng(random_state)
         self.nbuckets = len(self.ddfs)
-        
-        # Load the first bucket to get column information
-        first_ddf = self.ddfs[0]
-        self.cols = list(first_ddf.columns)
-        
+        self.cols = list(self.ddfs[0].columns)
         self._order = None
         self._order_i = 0
         self._buffer = []
@@ -156,17 +160,17 @@ class ShuffledBucketSampler:
         max_tries = self.nbuckets + target + 1
         while True:
             j = int(self.rng.integers(0, len(self._buffer)))
-            try:
-                row = next(self._buffer[j]["it"])
-                return dict(zip(self.cols, row))
-            except StopIteration:
-                del self._buffer[j]
-                self._fill_to_target(target)
-                if len(self._buffer) < target:
-                    raise StopIteration
-                tries += 1
-                if tries >= max_tries:
-                    raise StopIteration
+            entry = self._buffer[j]
+            row = self._next_row_from_entry(entry)
+            if row is not None:
+                return row
+            del self._buffer[j]
+            self._fill_to_target(target)
+            if len(self._buffer) < target:
+                raise StopIteration
+            tries += 1
+            if tries >= max_tries:
+                raise StopIteration
 
     def take(self, n: int):
         out = []
@@ -193,9 +197,15 @@ class ShuffledBucketSampler:
 
     def _make_entry(self, bucket_idx: int):
         ddf = self.ddfs[bucket_idx]
-        # Since buckets are already pre-shuffled, we don't need to shuffle again
-        it = ddf.itertuples(index=False, name=None)
+        it = iter_rows_by_partition(ddf)
         return {"bucket_idx": bucket_idx, "it": it}
+
+    def _next_row_from_entry(self, entry):
+        try:
+            row = next(entry["it"])
+            return dict(zip(self.cols, row))
+        except StopIteration:
+            return None
 
     def _fill_to_target(self, target_len: int):
         while len(self._buffer) < target_len:
@@ -203,5 +213,3 @@ class ShuffledBucketSampler:
             if bucket_idx is None:
                 break
             self._buffer.append(self._make_entry(bucket_idx))
-
-
