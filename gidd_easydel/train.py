@@ -273,6 +273,7 @@ def train(args):
                 bucket_path.rstrip("/") + "/**/*.parquet",
                 engine="pyarrow",
                 columns=["tokens"],
+                split_row_groups=False,
                 filesystem=fs,
             )
             for bucket_path in tqdm.tqdm(bucket_paths, desc="Loading dataset")
