@@ -111,10 +111,10 @@ class ShuffledBucketSampler:
             ShuffledBucketSampler (List[dd.DataFrame]):
                 List of to pre-shuffled parquet datasets. Each bucket should contain
                 approximately the same number of rows.
-            K (int):
+            K (int | None, default None):
                 Target number of active buckets in the buffer. Sampling proceeds only when the
                 buffer is full. If the dataset has fewer than K buckets, the target becomes the
-                number of available buckets.
+                number of available buckets. (default: all available buckets)
             loop (bool, default True):
                 If True, once all buckets have been consumed the sampler reshuffles the bucket
                 order and continues; if False, iteration stops when all buckets are exhausted.
