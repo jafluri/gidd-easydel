@@ -261,7 +261,12 @@ def train(args):
     print(f"Found {len(bucket_paths)} buckets in {args.data_files}")
 
     ddfs = [
-        dd.read_parquet(bucket_path.rstrip("/") + "/**/*.parquet", engine="pyarrow", columns=["tokens"])
+        dd.read_parquet(
+            bucket_path.rstrip("/") + "/**/*.parquet",
+            engine="pyarrow",
+            columns=["tokens"],
+            filesystem=fs,
+        )
         for bucket_path in bucket_paths
     ]
 
