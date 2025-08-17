@@ -246,32 +246,32 @@ def train(args):
         weight_distribution_log_steps=200,
     )
 
-    # ddf = dd.read_parquet(
-    #     args.data_files,
-    #     engine="pyarrow",
-    #     columns=["tokens"],
-    # )
+    ddf = dd.read_parquet(
+        args.data_files,
+        engine="pyarrow",
+        columns=["tokens"],
+    )
 
-    # sampler = BufferedPartitionSampler(ddf, K=128, random_state=random.randint(0, 2**32 - 1))
+    sampler = BufferedPartitionSampler(ddf, K=128, random_state=random.randint(0, 2**32 - 1))
 
-    assert not args.data_files.endswith(".parquet")
+    # assert not args.data_files.endswith(".parquet")
 
-    fs, _, _ = fsspec.get_fs_token_paths(args.data_files)
-    bucket_paths = sorted(fs.glob(args.data_files))
+    # fs, _, _ = fsspec.get_fs_token_paths(args.data_files)
+    # bucket_paths = sorted(fs.glob(args.data_files))
 
-    print(f"Found {len(bucket_paths)} buckets in {args.data_files}")
+    # print(f"Found {len(bucket_paths)} buckets in {args.data_files}")
 
-    ddfs = [
-        dd.read_parquet(
-            bucket_path.rstrip("/") + "/**/*.parquet",
-            engine="pyarrow",
-            columns=["tokens"],
-            filesystem=fs,
-        )
-        for bucket_path in tqdm.tqdm(bucket_paths, desc="Loading dataset")
-    ]
+    # ddfs = [
+    #     dd.read_parquet(
+    #         bucket_path.rstrip("/") + "/**/*.parquet",
+    #         engine="pyarrow",
+    #         columns=["tokens"],
+    #         filesystem=fs,
+    #     )
+    #     for bucket_path in tqdm.tqdm(bucket_paths, desc="Loading dataset")
+    # ]
 
-    sampler = ShuffledBucketSampler(ddfs, random_state=random.randint(0, 2**32 - 1))
+    # sampler = ShuffledBucketSampler(ddfs, random_state=random.randint(0, 2**32 - 1))
 
     def generate_dataset():
         yield from sampler
