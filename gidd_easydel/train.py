@@ -124,7 +124,7 @@ def train(args):
             # sharding_axis_dims=(-1, 1, 1, 1, 1),  # DP
             # sharding_axis_dims=(1, 1, 1, -1, 1),  # TP
             partition_axis=ed.PartitionAxis(),
-            gradient_checkpointing=ed.EasyDeLGradientCheckPointers.NOTHING_SAVEABLE,
+            gradient_checkpointing=ed.EasyDeLGradientCheckPointers.NONE,
             attn_mechanism=args.attn_mechanism,
             attn_dtype=dtype,
             attention_bias=args.attn_bias,
