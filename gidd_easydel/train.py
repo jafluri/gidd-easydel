@@ -244,7 +244,8 @@ def train(args):
         # progress_bar_type="json",
         track_memory=args.track_memory,
         use_grain=False,
-        weight_distribution_log_steps=200,
+        weight_distribution_log_steps=args.weight_distribution_log_steps,
+        log_grad_norms=args.log_grad_norms,
     )
 
     if args.sampler == "simple":

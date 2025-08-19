@@ -44,4 +44,6 @@ def parse_args(
     parser.add_argument("--dtype", type=str, default="bf16", choices=["fp32", "bf16"], help="Training data type.")
     parser.add_argument("--profiling", action=argparse.BooleanOptionalAction, default=False, help="Enable JAX profiling.")
     parser.add_argument("--track_memory", type=float, default=None, help="Track memory usage during training.")
+    parser.add_argument("--weight_distribution_log_steps", type=int, default=0, help="Log weight distribution every N steps. (set to 0 to disable)")
+    parser.add_argument("--log_grad_norms", action=argparse.BooleanOptionalAction, default=False, help="Log gradient norms during training.")
     return parser.parse_args()
