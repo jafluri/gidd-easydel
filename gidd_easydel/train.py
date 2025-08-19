@@ -315,6 +315,10 @@ def train(args):
     if trainer.arguments.can_log_metrics:
         wandb.config.update(vars(args), allow_val_change=True)
 
+    if args.compile_aot:
+        logger.info("Compiling ahead of time...")
+        trainer.compile_aot()
+
     if trainer.memory_monitor is not None:
         trainer.memory_monitor.start_monitoring()
 
