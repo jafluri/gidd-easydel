@@ -77,7 +77,7 @@ def train(args):
     head_dim = args.head_dim
 
     lr = args.lr  # 0.5
-    aux_lr = args.aux_lr  # 1e-3
+    aux_lr = lr * args.aux_lr_factor  # 1e-3
     init_scale = args.init_scale  # 0.4
     resid_scale = args.resid_scale  # 4
     aux_init_scale = args.aux_init_scale  # 0.02
@@ -119,7 +119,8 @@ def train(args):
             weight_scaling=1.0,
             head_scaling=head_scale / hidden_size,
             use_qk_norm=True,
-            sharding_axis_dims=(1, -1, 1, 1, 1),  # FSDP
+            sharding_axis_dims=(1, jax.process_count(), 1, -1, 1),  # FSDP across processes + TP across devices
+            # sharding_axis_dims=(1, -1, 1, 1, 1),  # FSDP
             # sharding_axis_dims=(-1, 1, 1, 1, 1),  # DP
             # sharding_axis_dims=(1, 1, 1, -1, 1),  # TP
             partition_axis=ed.PartitionAxis(),

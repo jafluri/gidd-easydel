@@ -16,7 +16,7 @@ def parse_args(
     parser.add_argument("--attn_mechanism", type=str, default="vanilla", choices=["auto", "vanilla", "sdpa", "flash_attn2", "ring", "splash", "cudnn", "blockwise", "cuda_flash_attn2", "paged_attention"], help="Attention mechanism to use.")
     parser.add_argument("--attn_bias", action=argparse.BooleanOptionalAction, default=True, help="Use attention bias in the model.")
     parser.add_argument("--lr", type=float, default=0.5, help="Learning rate for the optimizer.")
-    parser.add_argument("--aux_lr", type=float, default=1e-3, help="Auxiliary learning rate for the optimizer.")
+    parser.add_argument("--aux_lr_factor", type=float, default=0.02, help="Auxiliary learning rate for the optimizer (as a fraction of the main learning rate).")
     parser.add_argument("--beta1", type=float, default=0.9, help="Beta1 parameter for the optimizer.")
     parser.add_argument("--beta2", type=float, default=0.99, help="Beta2 parameter for the optimizer.")
     parser.add_argument("--max_training_steps", type=int, default=100_000, help="Maximum number of training steps.")
