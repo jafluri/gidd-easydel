@@ -4,7 +4,7 @@ import argparse
 def parse_args(
     default_save_directory="outputs/diffusion_trainer",
     default_wandb_entity="dvruette",
-    default_data_files="/local/home/dvruette/nemotron_tokenized/**/*.parquet",
+    default_data_files="/local/home/dvruette/nemotron_tokenized/",
 ):
     parser = argparse.ArgumentParser(description="Run the diffusion training process.")
     parser.add_argument("--seed", type=int, default=0, help="Random seed for reproducibility.")
