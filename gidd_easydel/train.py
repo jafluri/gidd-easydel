@@ -325,7 +325,7 @@ def train(args):
     logger.info("Starting training...")
 
     if args.profiling:
-        with jax.profiler.trace("/tmp/jax-trace", create_perfetto_link=True):
+        with jax.profiler.trace("/tmp/jax-trace", create_perfetto_link=False):
             trainer.train()
     else:
         trainer.train()
