@@ -11,7 +11,7 @@ SAVE_DIRECTORY = os.environ.get("SAVE_DIRECTORY", "outputs/diffusion_trainer")
 
 WANDB_ENTITY = os.environ.get("WANDB_ENTITY", None)
 
-DATA_FILES = os.environ.get("DATA_FILES", "gs://nemotron-cc_europe-west4/Nemotron-CC/**/*.parquet")
+DATA_FILES = os.environ.get("DATA_FILES", None)
 
 TPU_VERSION = os.environ.get("TPU_VERSION", "v3-8")
 
@@ -46,6 +46,7 @@ acc_config = TpuAcceleratorConfig(
 
 from args import parse_args
 ARGS = parse_args(SAVE_DIRECTORY, WANDB_ENTITY, DATA_FILES)
+assert ARGS.data_files is not None
 
 
 @execute(acc_config)
