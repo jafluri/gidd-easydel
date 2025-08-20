@@ -234,7 +234,7 @@ def train(args):
         warmup_steps=args.warmup_steps,
         weight_decay=0.02,
         save_directory=args.save_directory,
-        save_steps=1_000,
+        save_steps=args.save_steps,
         save_total_limit=1,
         save_optimizer_state=True,
         clip_grad=1.0,

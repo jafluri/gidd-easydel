@@ -36,6 +36,7 @@ def parse_args(
     parser.add_argument("--hybrid_mixing_shift", type=float, default=0.0, help="Shift for hybrid mixing schedule.")
     parser.add_argument("--tokenizer_id", type=str, default="dvruette/nemotron-cc-bpe", help="Tokenizer ID for the model.")
     parser.add_argument("--save_directory", type=str, default=default_save_directory, help="Directory to save model checkpoints.")
+    parser.add_argument("--save_steps", type=int, default=1000, help="Number of steps between saving model checkpoints.")
     parser.add_argument("--wandb_entity", type=str, default=default_wandb_entity, help="Weights & Biases entity for logging.")
     parser.add_argument("--wandb_name", type=str, default=None, help="Weights & Biases run name.")
     parser.add_argument("--wandb_tags", type=str, default=None, help="Weights & Biases tags for the run.")
