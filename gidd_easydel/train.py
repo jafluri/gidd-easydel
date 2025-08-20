@@ -1,11 +1,11 @@
-import easydel
+import easydel as ed
 
+import os
 import fsspec
 import random
 import typing as tp
 from copy import deepcopy
-
-import easydel as ed
+from datetime import datetime
 
 import dask.dataframe as dd
 import jax
@@ -64,6 +64,14 @@ def train(args):
         "fp32": jnp.float32,
         "bf16": jnp.bfloat16,
     }[args.dtype]
+
+    save_directory = os.path.join(
+        args.save_directory,
+        args.wandb_tags,
+        args.wandb_name,
+        datetime.now().strftime("%Y-%m-%d"),
+        datetime.now().strftime("%H-%M-%S"),
+    )
 
     # --- Basic Training Parameters ---
     seed = args.seed
@@ -233,9 +241,13 @@ def train(args):
         scheduler=ed.EasyDeLSchedulers.COSINE,
         warmup_steps=args.warmup_steps,
         weight_decay=0.02,
-        save_directory=args.save_directory,
+        save_directory=save_directory,
         save_steps=args.save_steps,
-        save_total_limit=1,
+        save_total_limit=(
+            args.save_total_limit
+            if args.save_total_limit is not None and args.save_total_limit > 0
+            else None
+        ),
         save_optimizer_state=True,
         clip_grad=1.0,
         report_steps=50,
