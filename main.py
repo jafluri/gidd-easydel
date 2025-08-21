@@ -37,6 +37,7 @@ pprint(EXECUTION_ENV_VARS)
 # Defines the TPU environment for Ray, specifying the accelerator type and worker setup.
 acc_config = TpuAcceleratorConfig(
     TPU_VERSION,
+    chips_per_host=4,
     execution_env={
         "env_vars": EXECUTION_ENV_VARS,
         "pip": PIP_PACKAGES,
