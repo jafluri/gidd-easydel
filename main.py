@@ -19,6 +19,7 @@ TPU_VERSION = os.environ.get("TPU_VERSION", "v3-8")
 # These environment variables are passed to each Ray worker to ensure they have
 # access to necessary tokens and use efficient shared memory for caching.
 EXECUTION_ENV_VARS = {
+    "EASYDEL_PROFILING": os.environ.get("EASYDEL_PROFILING", "0"),  # Enable EasyDeL profiling.
     "EASYDEL_AUTO": "1",  # Enables EasyDeL's automatic sharding configuration.
     "HF_TOKEN": os.environ.get("HF_TOKEN_FOR_EASYDEL", ""),  # Hugging Face token.
     "HF_DATASETS_CACHE": "/dev/shm/huggingface-dataset",  # RAM-disk for dataset cache.
