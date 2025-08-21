@@ -337,7 +337,17 @@ def train(args):
     logger.info("Starting training...")
 
     if args.profiling:
-        with jax.profiler.trace("/tmp/jax-trace", create_perfetto_link=False):
+        options = jax.profiler.ProfileOptions()
+        options.advanced_configuration = {
+            "tpu_trace_mode" : "TRACE_ONLY_XLA",
+            "tpu_num_sparse_cores_to_trace" : 2,
+        }
+        with jax.profiler.trace(
+            "/tmp/jax-trace",
+            create_perfetto_link=False,
+            create_perfetto_trace=True,
+            profiler_options=options,
+        ):
             trainer.train()
     else:
         trainer.train()
