@@ -127,8 +127,8 @@ def train(args):
             weight_scaling=1.0,
             head_scaling=head_scale / hidden_size,
             use_qk_norm=True,
-            sharding_axis_dims=(1, jax.process_count(), 1, -1, 1),  # FSDP across processes + TP across devices
-            # sharding_axis_dims=(1, -1, 1, 1, 1),  # FSDP
+            # sharding_axis_dims=(1, jax.process_count(), 1, -1, 1),  # FSDP across processes + TP across devices
+            sharding_axis_dims=(1, -1, 1, 1, 1),  # FSDP
             # sharding_axis_dims=(-1, 1, 1, 1, 1),  # DP
             # sharding_axis_dims=(1, 1, 1, -1, 1),  # TP
             partition_axis=ed.PartitionAxis(),
