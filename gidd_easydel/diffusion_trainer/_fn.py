@@ -133,23 +133,6 @@ def training_step(
     is_training: bool = True,
 ) -> tuple[EasyDeLState, LossMetrics]:
 
-    if os.getenv("GIDD_PROFILING") == "1":
-        if state.step == 1:
-            options = jax.profiler.ProfileOptions()
-            options.advanced_configuration = {
-                "tpu_trace_mode" : "TRACE_ONLY_XLA",
-                "tpu_num_sparse_cores_to_trace" : 2,
-            }
-            jax.profiler.start_trace(
-                "/tmp/jax-trace",
-                create_perfetto_link=False,
-                create_perfetto_trace=True,
-                profiler_options=options,
-            )
-
-        if state.step == 21:
-            jax.profiler.stop_trace()
-
     # Determine batch size, minibatch size, and enforce partition spec.
     batch_size, minibatch_size, partition_spec = make_assertions_and_get_sizes(
         batch=batch,
