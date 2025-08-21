@@ -225,7 +225,7 @@ def train(args):
         ## Trainer arguments
         model_name="gidd",  # for wandb project name
         wandb_name=args.wandb_name,
-        wandb_tags=args.wandb_tags.split(",") if args.wandb_tags else None,
+        # wandb_tags=args.wandb_tags.split(",") if args.wandb_tags else None,
         num_train_epochs=1,
         total_batch_size=total_batch_size,
         use_wandb=True,
