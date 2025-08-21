@@ -79,16 +79,16 @@ def compute_loss(loss_fn, state, tree, minibatch) -> tuple[chex.Array, LossMetri
         return_aux=True,
     )
 
-    for i, (attn, logs) in enumerate(zip(outputs.attentions, outputs.attention_logits)):
-        if attn is not None:
-            attn_entropy = jnp.mean(jax.scipy.special.entr(attn).sum(-1))
-            attn_max = jax.numpy.max(attn)
-            attn_max_logit = jax.numpy.max(logs)
-            # attn_median_logit = jax.numpy.median(logs)
-            metrics[f"attn/layer.{i}.attn_entropy"] = attn_entropy
-            metrics[f"attn/layer.{i}.attn_max"] = attn_max
-            metrics[f"attn/layer.{i}.max_logit"] = attn_max_logit
-            # metrics[f"attn/layer.{i}.median_logit"] = attn_median_logit
+    # for i, (attn, logs) in enumerate(zip(outputs.attentions, outputs.attention_logits)):
+    #     if attn is not None:
+    #         attn_entropy = jnp.mean(jax.scipy.special.entr(attn).sum(-1))
+    #         attn_max = jax.numpy.max(attn)
+    #         attn_max_logit = jax.numpy.max(logs)
+    #         # attn_median_logit = jax.numpy.median(logs)
+    #         metrics[f"attn/layer.{i}.attn_entropy"] = attn_entropy
+    #         metrics[f"attn/layer.{i}.attn_max"] = attn_max
+    #         metrics[f"attn/layer.{i}.max_logit"] = attn_max_logit
+    #         # metrics[f"attn/layer.{i}.median_logit"] = attn_median_logit
 
     # Apply mask and compute normalized loss/metrics
     if loss_mask is not True:
