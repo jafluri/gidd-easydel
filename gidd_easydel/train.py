@@ -225,11 +225,11 @@ def train(args):
         ## Trainer arguments
         model_name="gidd",  # for wandb project name
         wandb_name=args.wandb_name,
-        # wandb_tags=args.wandb_tags.split(",") if args.wandb_tags else None,
-        num_train_epochs=1,
-        total_batch_size=total_batch_size,
+        wandb_tags=args.wandb_tags.split(",") if args.wandb_tags else None,
         use_wandb=True,
         wandb_entity=args.wandb_entity,
+        num_train_epochs=1,
+        total_batch_size=total_batch_size,
         do_last_save=True,
         max_sequence_length=max_length,
         # This is MANDATORY for streaming datasets. It tells the trainer how many
@@ -252,7 +252,7 @@ def train(args):
         clip_grad=1.0,
         report_steps=50,
         log_steps=100,
-        # metrics_aggregation="mean",
+        metrics_aggregation="mean",
         # progress_bar_type="json",
         track_memory=args.track_memory,
         use_grain=False,

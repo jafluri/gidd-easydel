@@ -210,7 +210,7 @@ class GiddAttention(AttentionModule):
             base_config=self.config,
             softmax_scale=self.head_dim**-0.5,
             dropout_prob=0.0,
-            # soft_cap=self.config.attn_soft_cap,
+            soft_cap=self.config.attn_soft_cap,
             rngs=rngs,
         )
 
