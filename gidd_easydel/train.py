@@ -51,6 +51,26 @@ def wsd_lr_schedule(total_steps: int, base_lr: float, warmup_steps: int = 0, coo
     ], [warmup_steps, total_steps - cooldown_steps])
 
 
+
+def get_latest_checkpoint(checkpoint_dir):
+    save_path = ed.EasyPath(checkpoint_dir)
+    checkpoint_files = list(save_path.glob("run-*"))
+    assert len(checkpoint_files) > 0, f"No checkpoints found in {checkpoint_dir}"
+
+    def get_mtime(path):
+        try:
+            return path.stat().get("mtime", 0)
+        except Exception:
+            return 0
+        
+    checkpoint_files.sort(key=get_mtime)
+
+    latest_ckpt = checkpoint_files[-1]
+    step = int(latest_ckpt.stem().split("-")[-1])
+
+    return latest_ckpt, step
+
+
 def train(args):
     # jax.config.update('jax_disable_jit', True)
 
@@ -64,14 +84,6 @@ def train(args):
         "fp32": jnp.float32,
         "bf16": jnp.bfloat16,
     }[args.dtype]
-
-    args.save_directory = os.path.join(
-        args.save_directory,
-        args.wandb_name,
-        args.wandb_tags,
-        datetime.now().strftime("%Y-%m-%d"),
-        datetime.now().strftime("%H-%M-%S"),
-    )
 
     # --- Basic Training Parameters ---
     seed = args.seed
@@ -110,40 +122,64 @@ def train(args):
     tokenizer = AutoTokenizer.from_pretrained(args.tokenizer_id)
 
     # --- Model Definition ---
-    model = GiddForDiffusionLM(
-        config=GiddConfig(
-            vocab_size=len(tokenizer),
-            hidden_size=hidden_size,
-            intermediate_size=4*hidden_size,
-            num_hidden_layers=num_layers,
-            num_attention_heads=hidden_size // head_dim,
-            head_dim=head_dim,
-            is_causal=False,
-            max_position_embeddings=max_length,
-            resid_scale=resid_scale,
-            init_scale=init_scale / hidden_size**0.5,
-            emb_init_scale=aux_init_scale,
-            head_init_scale=0.0 if args.zero_head_init else aux_init_scale,
-            weight_scaling=1.0,
-            head_scaling=head_scale / hidden_size,
-            use_qk_norm=True,
-            # sharding_axis_dims=(1, jax.process_count(), 1, -1, 1),  # FSDP across processes + TP across devices
-            sharding_axis_dims=(1, -1, 1, 1, 1),  # FSDP
-            # sharding_axis_dims=(-1, 1, 1, 1, 1),  # DP
-            # sharding_axis_dims=(1, 1, 1, -1, 1),  # TP
+
+    if args.resume_wandb_id:
+        run = wandb.Api().run(f"EasyDeL-diffusiontrainer-Gidd/{args.resume_wandb_id}")
+        args.save_directory = run.config["save_directory"]
+        checkpoint_path, start_step = get_latest_checkpoint(os.path.join(args.save_directory, "gidd"))
+        logger.info(f"Resuming from checkpoint: {checkpoint_path}")
+        model_state = ed.EasyDeLState.load_state(
+            checkpoint_path,
+            dtype=dtype,
+            param_dtype=dtype,
+            precision=jax.lax.Precision.HIGH,
+            sharding_axis_dims=(1, -1, 1, 1, 1),
             partition_axis=ed.PartitionAxis(),
-            gradient_checkpointing=ed.EasyDeLGradientCheckPointers.NONE,
-            attn_mechanism=args.attn_mechanism,
-            attn_dtype=dtype,
-            attention_bias=args.attn_bias,
-            mlp_bias=True,
-            # scan_layers=True,
-        ),
-        dtype=dtype,
-        param_dtype=dtype,
-        precision=jax.lax.Precision.HIGH,
-        rngs=ed.Rngs(0),
-    ).shard_model()  # Shard the newly created model across devices.
+        )
+    else:
+        args.save_directory = os.path.join(
+            args.save_directory,
+            args.wandb_name,
+            args.wandb_tags,
+            datetime.now().strftime("%Y-%m-%d"),
+            datetime.now().strftime("%H-%M-%S"),
+        )
+        model = GiddForDiffusionLM(
+            config=GiddConfig(
+                vocab_size=len(tokenizer),
+                hidden_size=hidden_size,
+                intermediate_size=4*hidden_size,
+                num_hidden_layers=num_layers,
+                num_attention_heads=hidden_size // head_dim,
+                head_dim=head_dim,
+                is_causal=False,
+                max_position_embeddings=max_length,
+                resid_scale=resid_scale,
+                init_scale=init_scale / hidden_size**0.5,
+                emb_init_scale=aux_init_scale,
+                head_init_scale=0.0 if args.zero_head_init else aux_init_scale,
+                weight_scaling=1.0,
+                head_scaling=head_scale / hidden_size,
+                use_qk_norm=True,
+                # sharding_axis_dims=(1, jax.process_count(), 1, -1, 1),  # FSDP across processes + TP across devices
+                sharding_axis_dims=(1, -1, 1, 1, 1),  # FSDP
+                # sharding_axis_dims=(-1, 1, 1, 1, 1),  # DP
+                # sharding_axis_dims=(1, 1, 1, -1, 1),  # TP
+                partition_axis=ed.PartitionAxis(),
+                gradient_checkpointing=ed.EasyDeLGradientCheckPointers.NONE,
+                attn_mechanism=args.attn_mechanism,
+                attn_dtype=dtype,
+                attention_bias=args.attn_bias,
+                mlp_bias=True,
+                # scan_layers=True,
+            ),
+            dtype=dtype,
+            param_dtype=dtype,
+            precision=jax.lax.Precision.HIGH,
+            rngs=ed.Rngs(0),
+        ).shard_model()  # Shard the newly created model across devices.
+        model_state = model.to_state()
+        start_step = None
 
 
     class CustomDiffusionConfig(DiffusionConfig):
@@ -224,10 +260,15 @@ def train(args):
         hybrid_mixing_shift=args.hybrid_mixing_shift,
         ## Trainer arguments
         model_name="gidd",  # for wandb project name
-        wandb_name=args.wandb_name,
-        wandb_tags=args.wandb_tags.split(",") if args.wandb_tags else None,
         use_wandb=True,
         wandb_entity=args.wandb_entity,
+        wandb_kwargs={
+            "name": args.wandb_name,
+            "tags": args.wandb_tags.split(",") if args.wandb_tags else None,
+            "id": args.resume_wandb_id or None,
+            # "resume": "must" if args.resume_wandb_id else None,
+            "resume_from": f"{args.resume_wandb_id}?_step={start_step}" if args.resume_wandb_id else None
+        },
         num_train_epochs=1,
         total_batch_size=total_batch_size,
         do_last_save=True,
@@ -236,6 +277,7 @@ def train(args):
         # steps constitute one "epoch". Should be ~ (total_dataset_size // total_batch_size).
         per_epoch_training_steps=98_000_000,
         max_training_steps=total_steps,
+        step_start_point=start_step,
         learning_rate=lr / hidden_size,
         optimizer=ed.EasyDeLOptimizers.ADAMW,
         scheduler=ed.EasyDeLSchedulers.COSINE,
@@ -245,7 +287,7 @@ def train(args):
         save_steps=args.save_steps,
         save_total_limit=(
             args.save_total_limit
-            if args.save_total_limit is not None and args.save_total_limit > 0
+            if args.save_total_limit is not None and args.save_total_limit >= 0
             else None
         ),
         save_optimizer_state=True,
@@ -316,7 +358,7 @@ def train(args):
     # --- Trainer Setup and Execution ---
     trainer = DiffusionTrainer(
         arguments=arguments,
-        model=model,
+        model_state=model_state,
         tokenizer=tokenizer,
         train_dataset=train_dataset,
         eval_dataset=None,
