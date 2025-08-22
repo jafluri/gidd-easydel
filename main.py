@@ -26,6 +26,10 @@ EXECUTION_ENV_VARS = {
     "HF_HOME": "/dev/shm/huggingface",  # RAM-disk for model cache.
     "HF_DATASETS_OFFLINE": "0",  # Allow online dataset access.
     "WANDB_API_KEY": os.environ.get("WANDB_API_KEY_FOR_EASYDEL", ""),  # W&B API key.
+    "TF_CPP_MIN_LOG_LEVEL": "2",
+    "JAX_LOG_LEVEL": "error",
+    "LIBTPU_INIT_ARGS": "--minloglevel=2 --stderrthreshold=3 --log_dir=/tmp/tpu_logs",
+    "GRPC_VERBOSITY": "ERROR",
 }
 
 # Additional pip packages to install on each Ray worker environment.
