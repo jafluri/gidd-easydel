@@ -474,7 +474,7 @@ class GiddLayer(nn.Module):
 @register_module(
     TaskType.BASE_MODULE,
     config=GiddConfig,
-    model_type="Gidd",
+    model_type="gidd",
 )
 class GiddModel(EasyDeLBaseModule):
     """Gidd model implementation.
@@ -646,7 +646,7 @@ class GiddModel(EasyDeLBaseModule):
 @register_module(
     TaskType.DIFFUSION_LM,
     config=GiddConfig,
-    model_type="Gidd",
+    model_type="gidd",
 )
 class GiddForDiffusionLM(EasyDeLBaseModule):
     """Gidd model with a language modeling head for causal language modeling tasks.
