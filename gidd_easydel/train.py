@@ -266,8 +266,8 @@ def train(args):
             "name": args.wandb_name,
             "tags": args.wandb_tags.split(",") if args.wandb_tags else None,
             "id": args.resume_wandb_id or None,
-            # "resume": "must" if args.resume_wandb_id else None,
-            "resume_from": f"{args.resume_wandb_id}?_step={start_step}" if args.resume_wandb_id else None
+            "resume": "must" if args.resume_wandb_id else None,
+            # "resume_from": f"{args.resume_wandb_id}?_step={start_step}" if args.resume_wandb_id else None
         },
         num_train_epochs=1,
         total_batch_size=total_batch_size,
