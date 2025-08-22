@@ -9,7 +9,7 @@ SAVE_DIRECTORY = os.environ.get("SAVE_DIRECTORY", "outputs/diffusion_trainer")
 
 WANDB_ENTITY = os.environ.get("WANDB_ENTITY", None)
 
-DATA_FILES = os.environ.get("DATA_FILES", "/local/home/dvruette/nemotron_tokenized/")
+DATA_FILES = os.environ.get("DATA_FILES", "/local/home/dvruette/nemotron-cc_tokenized_shuffled/")
 
 
 def main():
