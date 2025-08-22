@@ -12,7 +12,7 @@ env = {
 }
 
 # Initialize Ray for distributed computing. This must be done once per application.
-ray.init(runtime_env={"py_modules": [os.path.join(os.getcwd(), "gidd_easydel")], "env_vars": env}, log_to_driver=False)
+ray.init(runtime_env={"py_modules": [os.path.join(os.getcwd(), "gidd_easydel")], "env_vars": env})
 
 SAVE_DIRECTORY = os.environ.get("SAVE_DIRECTORY", "outputs/diffusion_trainer")
 
