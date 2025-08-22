@@ -65,10 +65,10 @@ def train(args):
         "bf16": jnp.bfloat16,
     }[args.dtype]
 
-    save_directory = os.path.join(
+    args.save_directory = os.path.join(
         args.save_directory,
-        args.wandb_tags,
         args.wandb_name,
+        args.wandb_tags,
         datetime.now().strftime("%Y-%m-%d"),
         datetime.now().strftime("%H-%M-%S"),
     )
@@ -241,7 +241,7 @@ def train(args):
         scheduler=ed.EasyDeLSchedulers.COSINE,
         warmup_steps=args.warmup_steps,
         weight_decay=0.02,
-        save_directory=save_directory,
+        save_directory=args.save_directory,
         save_steps=args.save_steps,
         save_total_limit=(
             args.save_total_limit
@@ -326,6 +326,11 @@ def train(args):
 
     if trainer.arguments.can_log_metrics:
         wandb.config.update(vars(args), allow_val_change=True)
+        wandb.config.update({
+            "tpu_name": os.getenv("TPU_NAME"),
+            "tpu_version": os.getenv("TPU_VERSION"),
+            "tpu_zone": os.getenv("TPU_ZONE"),
+        }, allow_val_change=True)
 
     if args.compile_aot:
         logger.info("Compiling ahead of time...")
