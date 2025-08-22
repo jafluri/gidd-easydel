@@ -4,8 +4,15 @@ from pprint import pprint
 import ray
 from eformer.executor.ray import TpuAcceleratorConfig, execute
 
+env = {
+    "GLOG_minloglevel": "2",
+    "ABSL_MIN_LOG_LEVEL": "2",
+    "LIBTPU_INIT_ARGS": "--minloglevel=2 --stderrthreshold=3 --alsologtostderr=0 --logtostderr=0 --tpu_hbm_report_enable=0 --enable_runtime_metric_service=false --log_dir=/tmp/tpu_logs",
+    "GRPC_VERBOSITY": "ERROR",
+}
+
 # Initialize Ray for distributed computing. This must be done once per application.
-ray.init(runtime_env={"py_modules": [os.path.join(os.getcwd(), "gidd_easydel")]})
+ray.init(runtime_env={"py_modules": [os.path.join(os.getcwd(), "gidd_easydel")], "env_vars": env})
 
 SAVE_DIRECTORY = os.environ.get("SAVE_DIRECTORY", "outputs/diffusion_trainer")
 
@@ -26,10 +33,6 @@ EXECUTION_ENV_VARS = {
     "HF_HOME": "/dev/shm/huggingface",  # RAM-disk for model cache.
     "HF_DATASETS_OFFLINE": "0",  # Allow online dataset access.
     "WANDB_API_KEY": os.environ.get("WANDB_API_KEY_FOR_EASYDEL", ""),  # W&B API key.
-    "GLOG_minloglevel": "2",
-    "ABSL_MIN_LOG_LEVEL": "2",
-    "LIBTPU_INIT_ARGS": "--minloglevel=2 --stderrthreshold=3 --alsologtostderr=0 --logtostderr=0 --tpu_hbm_report_enable=0 --enable_runtime_metric_service=false --log_dir=/tmp/tpu_logs",
-    "GRPC_VERBOSITY": "ERROR",
 }
 
 # Additional pip packages to install on each Ray worker environment.
