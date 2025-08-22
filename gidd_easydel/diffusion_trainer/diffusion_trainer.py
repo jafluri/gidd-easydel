@@ -38,7 +38,8 @@ class DiffusionTrainer(Trainer):
         self,
         arguments: DiffusionConfig,
         tokenizer: PreTrainedTokenizerBase,
-        model: EasyDeLBaseModule | EasyDeLState | None = None,
+        model_state: EasyDeLState | None = None,
+        model: EasyDeLBaseModule | None = None,
         train_dataset: Dataset | None = None,
         eval_dataset: Dataset | dict[str, Dataset] | None = None,
         append_eos_token: bool = True,
@@ -46,7 +47,7 @@ class DiffusionTrainer(Trainer):
         dtype: jnp.dtype = None,
     ):
         assert isinstance(arguments, DiffusionConfig), "passed argument must be a `DiffusionConfig`."
-        assert model is not None, "You must pass a `model` to the DiffusionTrainer."
+        assert model is not None or model_state is not None, "You must pass a `model` to the DiffusionTrainer."
 
         if seed is None:
             seed = random.randint(0, 2**31 - 1)
@@ -73,9 +74,6 @@ class DiffusionTrainer(Trainer):
             mask_token_id=tokenizer.mask_token_id,
         )
 
-        if not isinstance(model, EasyDeLState):
-            model = model.to_state()
-
         if train_dataset is not None:
             train_dataset = self._prepare_dataset(
                 train_dataset,
@@ -97,7 +95,8 @@ class DiffusionTrainer(Trainer):
             arguments=arguments,
             dataset_train=train_dataset,
             dataset_eval=eval_dataset,
-            model_state=model,
+            model_state=model_state,
+            model=model,
             data_collator=self.prepare_batch,
         )
         logger.info("Initialized DiffusionTrainer")
