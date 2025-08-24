@@ -34,6 +34,12 @@ def get_sharding_axis(strategy: str, batch_size: int, num_procs: int, num_device
         "tp": (1, 1, 1, -1, 1),
     }
 
+    if "," in strategy:
+        strategy = strategy.split(",")
+        strategy = tuple(int(s) for s in strategy)
+        logger.info("Using sharding strategy: %s", strategy)
+        return strategy
+
     if strategy == "auto":
         if batch_size % num_devices == 0:
             strategy = "fsdp"
