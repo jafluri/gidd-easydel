@@ -37,6 +37,7 @@ def get_sharding_axis(strategy: str, batch_size: int, num_procs: int, num_device
     if "," in strategy:
         strategy = strategy.split(",")
         strategy = tuple(int(s) for s in strategy)
+        assert len(strategy) == 5, f"Invalid sharding strategy: {strategy}"
         logger.info("Using sharding strategy: %s", strategy)
         return strategy
 
