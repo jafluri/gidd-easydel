@@ -37,8 +37,8 @@ def get_sharding_axis(strategy: str, batch_size: int, num_procs: int, num_device
             strategy = "fsdp+tp"
         else:
             strategy = "tp"
-    if strategy not in STRATS[strategy]:
-        raise ValueError(f"Unknown sharding strategy: {strategy}")
+    if strategy not in STRATS:
+        raise ValueError(f"Unknown sharding strategy: {strategy} (available strategies: {list(STRATS.keys())})")
     return STRATS[strategy]
 
 
