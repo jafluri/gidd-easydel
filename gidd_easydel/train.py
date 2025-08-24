@@ -23,6 +23,25 @@ from .model import GiddForDiffusionLM, GiddConfig
 from .optimizer import lapropw
 
 
+def get_sharding_axis(strategy: str, batch_size: int, num_procs: int, num_devices: int):
+    STRATS = {
+        "fsdp": (1, -1, 1, 1, 1),
+        "fsdp+tp": (1, num_procs, 1, -1, 1),  # FSDP across processes + TP across devices
+        "dp": (-1, 1, 1, 1, 1),
+        "tp": (1, 1, 1, -1, 1),
+    }
+    if strategy == "auto":
+        if batch_size % num_devices == 0:
+            strategy = "fsdp"
+        elif batch_size % num_procs == 0:
+            strategy = "fsdp+tp"
+        else:
+            strategy = "tp"
+    if strategy not in STRATS[strategy]:
+        raise ValueError(f"Unknown sharding strategy: {strategy}")
+    return STRATS[strategy]
+
+
 def wsd_lr_schedule(total_steps: int, base_lr: float, warmup_steps: int = 0, cooldown_steps: int = 0) -> tp.Callable[[chex.Numeric], chex.Numeric]:
     """
     Implements a warmup-stable-decay learning rate schedule.
@@ -76,9 +95,12 @@ def train(args):
 
     logger = ed.utils.get_logger(__name__)
 
-    logger.info("Process count: %d, device count: %d, process index: %d",
-                jax.process_count(), jax.local_device_count(), jax.process_index())
-    
+    num_procs = jax.process_count()
+    num_local_devices = jax.local_device_count()
+    num_devices = jax.device_count()
+
+    logger.info("Process count: %d, local device count: %d, process index: %d, global device count: %d",
+                num_procs, num_local_devices, jax.process_index(), num_devices)
 
     dtype = {
         "fp32": jnp.float32,
@@ -162,10 +184,7 @@ def train(args):
                 weight_scaling=1.0,
                 head_scaling=head_scale / hidden_size,
                 use_qk_norm=True,
-                # sharding_axis_dims=(1, jax.process_count(), 1, -1, 1),  # FSDP across processes + TP across devices
-                sharding_axis_dims=(1, -1, 1, 1, 1),  # FSDP
-                # sharding_axis_dims=(-1, 1, 1, 1, 1),  # DP
-                # sharding_axis_dims=(1, 1, 1, -1, 1),  # TP
+                sharding_axis_dims=get_sharding_axis(args.sharding, total_batch_size, num_procs, num_devices),
                 partition_axis=ed.PartitionAxis(),
                 gradient_checkpointing=ed.EasyDeLGradientCheckPointers.NONE,
                 attn_mechanism=args.attn_mechanism,
@@ -379,6 +398,9 @@ def train(args):
             "tpu_version": os.getenv("TPU_VERSION"),
             "tpu_zone": os.getenv("TPU_ZONE"),
             "tpu_pod_count": os.getenv("TPU_POD_COUNT"),
+            "num_procs": num_procs,
+            "num_local_devices": num_local_devices,
+            "num_devices": num_devices,
         }, allow_val_change=True)
 
     if args.compile_aot:
