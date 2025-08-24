@@ -30,7 +30,7 @@ EXECUTION_ENV_VARS = {
     "TPU_NAME": os.getenv("TPU_NAME"),
     "TPU_VERSION": TPU_VERSION,
     "TPU_ZONE": os.getenv("TPU_ZONE"),
-    "TPU_POD_COUNT": TPU_POD_COUNT,
+    "TPU_POD_COUNT": str(TPU_POD_COUNT),
 }
 
 # Additional pip packages to install on each Ray worker environment.
