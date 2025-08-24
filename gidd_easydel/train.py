@@ -136,6 +136,7 @@ def train(args):
             sharding_axis_dims=(1, -1, 1, 1, 1),
             partition_axis=ed.PartitionAxis(),
         )
+        model_state = model_state.replace(step=jnp.asarray(0))
     else:
         args.save_directory = os.path.join(
             args.save_directory,
