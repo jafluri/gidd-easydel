@@ -190,53 +190,6 @@ class GiddConfig(EasyDeLBaseConfig):
             (r".*", pmag.resolve(Replicated)),
         )
 
-    def attach_custom_arguments(
-        self,
-        tie_word_embeddings: bool = False,
-        gradient_checkpointing: EasyDeLGradientCheckPointers = EasyDeLGradientCheckPointers.NONE,
-        bits: tp.Optional[int] = None,
-        rope_theta: float = 10000.0,
-        attention_bias: bool = False,
-        mlp_bias: bool = False,
-        scan_layers: bool = True,
-        **kwargs,
-    ):
-        """The attach_custom_arguments function adds the following arguments to the Transformer class:
-
-        Args:
-            self: Refer to the current object
-            resid_pdrop: float: Set the dropout rate for residual
-                connections
-            embd_pdrop: float: Set the probability of dropping an
-                embedding
-            attention_dropout: float: Set the probability of dropping
-                out the attention layer
-            tie_word_embeddings: bool: Tie the word embeddings to the
-                decoder
-            gradient_checkpointing: str: Control the amount of memory
-                used by jax
-            fcm_min_ratio: float: Control the minimum ratio of the
-                number of chunks to be used in flash-based computation
-            fcm_max_ratio: float: Set the maximum ratio of the number of
-                input tokens to output tokens
-            number_rep_kv: int: Determine how many times the key and
-                value vectors are repeated
-            bits: tp.Optional[int]: Determine the number of bits used in
-                the quantization
-            rope_theta: float : rope_theta for compute rope
-            attention_bias: bool : whenever to use attention bias or no
-            mlp_bias: bool : whenever to use bias in mlp
-            scan_layers: bool: Determine whether to use scan layers or
-                not
-        """
-        self.scan_layers = scan_layers
-        self.rope_theta = rope_theta
-        self.attention_bias = attention_bias
-        self.mlp_bias = mlp_bias
-        self.tie_word_embeddings = tie_word_embeddings
-        self.gradient_checkpointing = gradient_checkpointing
-        self.bits = bits
-
     @staticmethod
     def get_weight_decay_exclusions():
         return tuple()
