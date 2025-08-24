@@ -23,6 +23,9 @@ from .model import GiddForDiffusionLM, GiddConfig
 from .optimizer import lapropw
 
 
+logger = ed.utils.get_logger(__name__)
+
+
 def get_sharding_axis(strategy: str, batch_size: int, num_procs: int, num_devices: int):
     STRATS = {
         "fsdp": (1, -1, 1, 1, 1),
@@ -30,6 +33,7 @@ def get_sharding_axis(strategy: str, batch_size: int, num_procs: int, num_device
         "dp": (-1, 1, 1, 1, 1),
         "tp": (1, 1, 1, -1, 1),
     }
+
     if strategy == "auto":
         if batch_size % num_devices == 0:
             strategy = "fsdp"
@@ -37,6 +41,8 @@ def get_sharding_axis(strategy: str, batch_size: int, num_procs: int, num_device
             strategy = "fsdp+tp"
         else:
             strategy = "tp"
+
+    logger.info("Using sharding strategy: %s", strategy)
     if strategy not in STRATS:
         raise ValueError(f"Unknown sharding strategy: {strategy} (available strategies: {list(STRATS.keys())})")
     return STRATS[strategy]
@@ -92,8 +98,6 @@ def get_latest_checkpoint(checkpoint_dir):
 
 def train(args):
     # jax.config.update('jax_disable_jit', True)
-
-    logger = ed.utils.get_logger(__name__)
 
     num_procs = jax.process_count()
     num_local_devices = jax.local_device_count()
