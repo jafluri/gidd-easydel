@@ -346,6 +346,9 @@ def train(args):
 
     train_dataset = IterableDataset.from_generator(generate_dataset)
 
+    jax.experimental.multihost_utils.sync_global_devices()
+    logger.info("Loaded dataset on all hosts")
+
     # train_dataset = load_dataset(
     #     "parquet",
     #     data_files=args.data_files,
@@ -373,6 +376,7 @@ def train(args):
             "tpu_name": os.getenv("TPU_NAME"),
             "tpu_version": os.getenv("TPU_VERSION"),
             "tpu_zone": os.getenv("TPU_ZONE"),
+            "tpu_pod_count": os.getenv("TPU_POD_COUNT"),
         }, allow_val_change=True)
 
     if args.compile_aot:
@@ -382,6 +386,6 @@ def train(args):
     if trainer.memory_monitor is not None:
         trainer.memory_monitor.start_monitoring()
 
+    jax.experimental.multihost_utils.sync_global_devices()
     logger.info("Starting training...")
-
     trainer.train()

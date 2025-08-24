@@ -2,7 +2,7 @@ import os
 from pprint import pprint
 
 import ray
-from eformer.executor.ray import TpuAcceleratorConfig, execute
+from eformer.executor.ray import TpuAcceleratorConfig, execute, execute_multislice
 
 # Initialize Ray for distributed computing. This must be done once per application.
 ray.init(runtime_env={"py_modules": [os.path.join(os.getcwd(), "gidd_easydel")]})
@@ -14,6 +14,7 @@ WANDB_ENTITY = os.getenv("WANDB_ENTITY", None)
 DATA_FILES = os.getenv("DATA_FILES", None)
 
 TPU_VERSION = os.getenv("TPU_VERSION", "v3-8")
+TPU_POD_COUNT = int(os.getenv("TPU_POD_COUNT", "1"))
 
 # --- Environment and TPU Configuration ---
 # These environment variables are passed to each Ray worker to ensure they have
@@ -29,6 +30,7 @@ EXECUTION_ENV_VARS = {
     "TPU_NAME": os.getenv("TPU_NAME"),
     "TPU_VERSION": TPU_VERSION,
     "TPU_ZONE": os.getenv("TPU_ZONE"),
+    "TPU_POD_COUNT": TPU_POD_COUNT,
 }
 
 # Additional pip packages to install on each Ray worker environment.
@@ -41,6 +43,7 @@ pprint(EXECUTION_ENV_VARS)
 # Defines the TPU environment for Ray, specifying the accelerator type and worker setup.
 acc_config = TpuAcceleratorConfig(
     TPU_VERSION,
+    pod_count=TPU_POD_COUNT,
     chips_per_host=4,
     execution_env={
         "env_vars": EXECUTION_ENV_VARS,
@@ -54,7 +57,9 @@ ARGS = parse_args(SAVE_DIRECTORY, WANDB_ENTITY, DATA_FILES)
 assert ARGS.data_files is not None
 
 
-@execute(acc_config)
+execute_decorator = execute_multislice if TPU_POD_COUNT > 1 else execute
+
+@execute_decorator(acc_config)
 @ray.remote
 def main():
     """
