@@ -289,6 +289,7 @@ def train(args):
         max_log_snr=args.max_log_snr,
         hybrid_mixing_scale=args.hybrid_mixing_scale,
         hybrid_mixing_shift=args.hybrid_mixing_shift,
+        causal_prompt_attention=args.causal_prompt_attn,
         ## Trainer arguments
         model_name="gidd",  # for wandb project name
         use_wandb=True,

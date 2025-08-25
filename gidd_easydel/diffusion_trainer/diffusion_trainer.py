@@ -187,7 +187,10 @@ class DiffusionTrainer(Trainer):
             prompt_mask = has_prompt_mask[:, None] & promp_mask
             noise_mask = noise_mask & ~prompt_mask
 
-            attn_mask = attn_mask & jnp.where(noise_mask[..., None], True, causal_mask)
+            if self.arguments.causal_prompt_attention:
+                attn_mask = attn_mask & jnp.where(noise_mask[..., None], True, causal_mask)
+            else:
+                attn_mask = attn_mask & (noise_mask[..., None] >= noise_mask[..., None, :])
 
 
         # Sample which sequences get infilling conditioning (random noise-free tokens)

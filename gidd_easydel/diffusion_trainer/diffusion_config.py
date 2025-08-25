@@ -20,6 +20,7 @@ class DiffusionConfig(TrainingArguments):
     beta_is_div: float = field(default=1.0, metadata={"help": "Weight of the IS-divergence loss"})
     # input augmentation
     max_empty_token_frac: float = field(default=0.0, metadata={"help": "Maximum fraction of empty tokens to insert."})
+    causal_prompt_attention: bool = field(default=True, metadata={"help": "If true, use a causal attention mask for only the prompt tokens, otherwise use a block attention mask."})
     # noise sampling
     noise_p_independent: float = field(default=0.0, metadata={"help": "Probability that SNR is sampled independently for each token."})
     noise_p_linear: float = field(default=0.0, metadata={"help": "Probability that SNR is sampled linearly increasing in token position."})

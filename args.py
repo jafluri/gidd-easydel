@@ -16,6 +16,7 @@ def parse_args(
     parser.add_argument("--hidden_size", type=int, default=512, help="Hidden size of the model.")
     parser.add_argument("--head_dim", type=int, default=64, help="Dimension of each attention head.")
     parser.add_argument("--attn_mechanism", type=str, default="vanilla", choices=["auto", "vanilla", "sdpa", "flash_attn2", "ring", "splash", "cudnn", "blockwise", "cuda_flash_attn2", "paged_attention"], help="Attention mechanism to use.")
+    parser.add_argument("--causal_prompt_attn", action=argparse.BooleanOptionalAction, default=True, help="Use causal prompt attention.")
     parser.add_argument("--attn_bias", action=argparse.BooleanOptionalAction, default=True, help="Use attention bias in the model.")
     # training schedule
     parser.add_argument("--max_training_steps", type=int, default=100_000, help="Maximum number of training steps.")
@@ -40,7 +41,7 @@ def parse_args(
     # mixing schedule & diffusion loss
     parser.add_argument("--beta_is_div", type=float, default=1.0, help="Weight of the IS-divergence loss.")
     parser.add_argument("--max_empty_token_frac", type=float, default=0.2, help="Maximum fraction of empty tokens.")
-    parser.add_argument("--noise_p_independent", type=float, default=0.5, help="Probability that SNR is sampled independently for each token.")
+    parser.add_argument("--noise_p_independent", type=float, default=0.4, help="Probability that SNR is sampled independently for each token.")
     parser.add_argument("--noise_p_linear", type=float, default=0.1, help="Probability that SNR is sampled linearly for each token.")
     parser.add_argument("--noise_mask_p_prompt", type=float, default=0.1, help="Probability that a sample has a noise-free prompt.")
     parser.add_argument("--noise_mask_p_infilling", type=float, default=0.1, help="Probability that a sample has a noise-free infilling.")
