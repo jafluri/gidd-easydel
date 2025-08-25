@@ -571,9 +571,9 @@ class GiddModel(EasyDeLBaseModule):
                 attention_mask = jnp.astype(attention_mask == 1, "b1")
         if position_ids is None:
             position_ids = jnp.broadcast_to(
-                jnp.clip(jnp.cumsum(attention_mask, axis=-1) - 1, a_min=0),
-                (batch_size, sequence_length),
-            ).astype(jnp.int32)
+                jnp.arange(inputs_embeds.shape[-2], dtype=jnp.int32),
+                inputs_embeds.shape[:-1],
+            )
 
         hidden_states = inputs_embeds
         if mode is None:
