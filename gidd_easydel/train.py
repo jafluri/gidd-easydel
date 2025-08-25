@@ -278,15 +278,15 @@ def train(args):
     # --- Configuration ---
     arguments = CustomDiffusionConfig(
         ## Diffusion arguments
-        beta_is_div=1.0,
-        noise_p_independent=0.5,  # 0.0,
-        noise_p_linear=0.1,
-        noise_mask_p_prompt=0.1,
-        noise_mask_p_infilling=0.1,
+        beta_is_div=args.beta_is_div,
+        noise_p_independent=args.max_empty_token_frac,  # 0.0,
+        noise_p_linear=args.noise_p_linear,
+        noise_mask_p_prompt=args.noise_mask_p_prompt,
+        noise_mask_p_infilling=args.noise_mask_p_infilling,
         noise_mask_max_cond_frac=1.0,
         mixing_rate="linear",
-        min_log_snr=-9.0,
-        max_log_snr=9.0,
+        min_log_snr=args.min_log_snr,
+        max_log_snr=args.max_log_snr,
         hybrid_mixing_scale=args.hybrid_mixing_scale,
         hybrid_mixing_shift=args.hybrid_mixing_shift,
         ## Trainer arguments
