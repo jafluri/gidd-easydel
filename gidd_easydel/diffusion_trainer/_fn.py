@@ -69,8 +69,6 @@ def compute_loss(loss_fn, state, tree, minibatch) -> tuple[chex.Array, LossMetri
     )
     logits = outputs.logits
 
-    loss_mask = attention_mask & noise_mask
-
     loss, metrics = loss_fn(
         logits=logits,
         input_ids=input_ids,
@@ -91,13 +89,13 @@ def compute_loss(loss_fn, state, tree, minibatch) -> tuple[chex.Array, LossMetri
     #         # metrics[f"attn/layer.{i}.median_logit"] = attn_median_logit
 
     # Apply mask and compute normalized loss/metrics
-    if loss_mask is not True:
+    if noise_mask is not True:
         # Mask the loss and all metrics
-        masked_loss = loss * loss_mask
-        masked_metrics = {k: v * loss_mask for k, v in metrics.items()}
+        masked_loss = loss * noise_mask
+        masked_metrics = {k: v * noise_mask for k, v in metrics.items()}
         
         # Compute normalization factor
-        mask_sum = loss_mask.sum()
+        mask_sum = noise_mask.sum()
         
         # Normalize loss and metrics by the number of valid tokens
         avg_loss = masked_loss.sum() / jnp.maximum(mask_sum, 1.0)
