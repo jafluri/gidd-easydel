@@ -135,7 +135,7 @@ def train(args):
     resid_scale = args.resid_scale  # 4
     aux_init_scale = args.aux_init_scale  # 0.02
     weight_decay = args.weight_decay  # 1e-4
-    ln_wd = args.ln_wd  # 0.01
+    ln_wd = weight_decay if args.ln_wd is None else args.ln_wd
     bias_wd = args.bias_wd  # 0.0
     head_scale = args.head_scale  # 512
     adam_eps = args.adam_eps  # 1e-8
