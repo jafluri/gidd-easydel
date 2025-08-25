@@ -26,15 +26,17 @@ def prepare_batch(
     sample_log_snr_fn: tp.Callable,
     sample_noise_mask_fn: tp.Callable,
     sample_marginals_fn: tp.Callable,
+    insert_empty_tokens_fn: tp.Callable,
     max_log_snr: float = 10.0,
 ) -> dict[str, jax.Array]:
     labels = batch["input_ids"]
     shape = labels.shape
 
     # Split key for independent sampling operations
-    noise_key, snr_key, marginal_key = jax.random.split(key, 3)
+    key, empty_key, noise_key, snr_key, marginal_key = jax.random.split(key, 5)
 
-    noise_mask = sample_noise_mask_fn(noise_key, shape)
+    labels = insert_empty_tokens_fn(empty_key, labels)
+    noise_mask, attn_mask = sample_noise_mask_fn(noise_key, shape)
     log_snr = sample_log_snr_fn(snr_key, shape)
     log_snr = jnp.where(noise_mask, log_snr, max_log_snr)
 
@@ -45,13 +47,11 @@ def prepare_batch(
     batch["labels"] = labels
     batch["log_snr"] = log_snr
     batch["noise_mask"] = noise_mask
-    batch["attention_mask"] = batch.get("attention_mask", jnp.ones(shape, dtype=bool))
+    batch["attention_mask"] = attn_mask
     return batch
 
 
 def compute_loss(loss_fn, state, tree, minibatch) -> tuple[chex.Array, LossMetrics]:
-    import jax
-    import jax.numpy as jnp
     input_ids = minibatch.get("input_ids", None)
     labels = minibatch.get("labels", None)
     log_snr = minibatch.get("log_snr", None)
@@ -126,6 +126,7 @@ def training_step(
     sample_log_snr_fn: tp.Callable,
     sample_noise_mask_fn: tp.Callable,
     sample_marginals_fn: tp.Callable,
+    insert_empty_tokens_fn: tp.Callable,
     loss_config: LossConfig | None = None,
     learning_rate_fn: optax.Schedule = None,
     partition_spec: PartitionSpec | None = None,
@@ -148,6 +149,7 @@ def training_step(
         sample_log_snr_fn=sample_log_snr_fn,
         sample_noise_mask_fn=sample_noise_mask_fn,
         sample_marginals_fn=sample_marginals_fn,
+        insert_empty_tokens_fn=insert_empty_tokens_fn,
     )
 
     _compute_loss = functools.partial(compute_loss, loss_fn, state)

@@ -223,7 +223,6 @@ class GiddAttention(AttentionModule):
         key: chex.Array,
         value: chex.Array,
         attention_mask: chex.Array,
-        noise_mask: chex.Array,
         # mode: common_types.RUNTIME_MODE_TYPES,  # type:ignore
         cache_view: TransformerCacheView | PagesCacheView | None = None,
         cache_metadata: TransformerMetadata | PagesMetadata | None = None,
@@ -241,15 +240,6 @@ class GiddAttention(AttentionModule):
         attention_mask = jnp.expand_dims(attention_mask, axis=(-3, -2))
         attention_mask = jnp.repeat(attention_mask, query.shape[1], -2)
         # shape: [Batch, 1, q_len, kv_len]
-
-        if noise_mask is not None:
-            if noise_mask.dtype != jnp.bool:
-                warnings.warn("noise_mask should be a boolean array", stacklevel=1)
-                noise_mask = (noise_mask == 1).astype("b1")
-            noise_mask_q = jnp.expand_dims(noise_mask, axis=-1)
-            noise_mask_kv = jnp.expand_dims(noise_mask, axis=-2)
-            noise_attn_mask = jnp.expand_dims(noise_mask_q >= noise_mask_kv, axis=-3)
-            attention_mask = jnp.logical_and(attention_mask, noise_attn_mask)
         
         if self.attention_bias:
             attention_mask = jnp.concat([
@@ -270,7 +260,6 @@ class GiddAttention(AttentionModule):
         self,
         hidden_states: chex.Array,
         attention_mask: chex.Array,
-        noise_mask: chex.Array,
         position_ids: chex.Array,
         mode: common_types.RUNTIME_MODE_TYPES,  # type:ignore
         cache_view: tp.Optional[TransformerCacheView | PagesCacheView] = None,
@@ -332,7 +321,6 @@ class GiddAttention(AttentionModule):
             cache_metadata=cache_metadata,
             value=value_states,
             attention_mask=attention_mask,
-            noise_mask=noise_mask,
         )
 
         if self.attention_bias:
@@ -425,7 +413,6 @@ class GiddLayer(nn.Module):
         hidden_states: chex.Array,
         attention_mask: chex.Array,
         position_ids: chex.Array,
-        noise_mask: chex.Array,
         mode: common_types.RUNTIME_MODE_TYPES,  # type:ignore
         cache_view: tp.Optional[TransformerCacheView | PagesCacheView] = None,
         cache_metadata: tp.Optional[TransformerMetadata | PagesMetadata] = None,
@@ -436,7 +423,6 @@ class GiddLayer(nn.Module):
         attn_outputs = self.self_attn(
             self.attn_layernorm(hidden_states),
             attention_mask=attention_mask,
-            noise_mask=noise_mask,
             position_ids=position_ids,
             mode=mode,
             cache_view=cache_view,
@@ -540,7 +526,6 @@ class GiddModel(EasyDeLBaseModule):
         attention_mask: tp.Optional[chex.Array] = None,
         position_ids: tp.Optional[chex.Array] = None,
         log_snr: tp.Optional[chex.Array] = None,
-        noise_mask: tp.Optional[chex.Array] = None,
         segment_ids: tp.Optional[chex.Array] = None,
         mode: tp.Optional[common_types.RUNTIME_MODE_TYPES] = None,  # type:ignore
         past_key_values: tp.Optional[TransformerCache | PagesCache] = None,
@@ -613,7 +598,6 @@ class GiddModel(EasyDeLBaseModule):
                 hidden_states=hidden_states,
                 attention_mask=attention_mask,
                 position_ids=position_ids,
-                noise_mask=noise_mask,
                 mode=mode,
                 cache_view=past_key_values.views[idx],
                 cache_metadata=cache_metadata,
@@ -706,7 +690,6 @@ class GiddForDiffusionLM(EasyDeLBaseModule):
         position_ids: tp.Optional[chex.Array] = None,
         segment_ids: tp.Optional[chex.Array] = None,
         log_snr: tp.Optional[chex.Array] = None,
-        noise_mask: tp.Optional[chex.Array] = None,
         mode: tp.Optional[common_types.RUNTIME_MODE_TYPES] = None,  # type:ignore
         past_key_values: tp.Optional[TransformerCache | PagesCache] = None,
         cache_metadata: tp.Optional[TransformerMetadata | PagesMetadata] = None,
@@ -735,7 +718,6 @@ class GiddForDiffusionLM(EasyDeLBaseModule):
             attention_mask=attention_mask,
             position_ids=position_ids,
             log_snr=log_snr,
-            noise_mask=noise_mask,
             output_attentions=output_attentions,
             output_hidden_states=output_hidden_states,
             mode=mode,

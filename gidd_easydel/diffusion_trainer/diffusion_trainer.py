@@ -159,14 +159,17 @@ class DiffusionTrainer(Trainer):
 
         # Start with all tokens receiving noise
         noise_mask = jnp.ones(shape, dtype=bool)
+        attn_mask = jnp.ones((batch_size, seq_len, seq_len), dtype=bool)
+        causal_mask = jnp.tril(jnp.ones((1, seq_len, seq_len), dtype=bool))
 
         # Split key for different sampling operations
         key, prompt_key, infill_key = jax.random.split(key, 3)
 
         # Sample which sequences get prompt conditioning (noise-free prefix)
         if self.arguments.noise_mask_p_prompt > 0:
+            prompt_key, k = jax.random.split(prompt_key, 2)
             has_prompt_mask = jax.random.bernoulli(
-                prompt_key, 
+                k, 
                 self.arguments.noise_mask_p_prompt, 
                 shape=(batch_size,)
             )
@@ -183,6 +186,9 @@ class DiffusionTrainer(Trainer):
             # Apply prompt conditioning where has_prompt_mask is True
             prompt_mask = has_prompt_mask[:, None] & promp_mask
             noise_mask = noise_mask & ~prompt_mask
+
+            attn_mask = attn_mask & jnp.where(noise_mask[..., None], True, causal_mask)
+
 
         # Sample which sequences get infilling conditioning (random noise-free tokens)
         if self.arguments.noise_mask_p_infilling > 0:
@@ -205,13 +211,39 @@ class DiffusionTrainer(Trainer):
             infill_mask = has_infill_mask[:, None] & infill_mask
             noise_mask = noise_mask & ~infill_mask
 
-        # attn_mask = jnp.ones((batch_size, seq_len, seq_len), dtype=bool)
         # if self.arguments.attn_mask_pattern == "lognormal":
         #     rand = 5 * jax.random.lognormal(key, 1.0, (batch_size, seq_len))
         #     order = jnp.arange(seq_len)[None, :] + rand
         #     attn_mask = order[..., None] >= order[..., None, :]
 
-        return noise_mask
+        return noise_mask, attn_mask
+    
+    def _insert_empty_tokens(self, key, input_ids, empty_token_id: int = None, max_empty_token_frac: float | None = None):
+        max_empty_token_frac = max_empty_token_frac or self.arguments.max_empty_token_frac
+        empty_token_id = empty_token_id or self.tokenizer.pad_token_id
+        assert 0.0 <= max_empty_token_frac < 1.0
+
+        if max_empty_token_frac == 0.0:
+            return input_ids
+
+        batch_size, seq_len = input_ids.shape
+        total_len = int(round(seq_len / (1.0 - max_empty_token_frac)))
+
+        frac_key, key = jax.random.split(key)
+        empty_token_fracs = jax.random.uniform(frac_key, shape=(batch_size,)) * max_empty_token_frac
+
+        keys = jax.random.split(key, batch_size)
+
+        def per_example(seq, k, empty_frac):
+            empty_count = jnp.ceil(seq_len * (empty_frac / (1.0 - empty_frac))).astype(jnp.int32)
+            perm = jax.random.permutation(k, seq_len)
+            ranks = jnp.full((total_len,), total_len, dtype=jnp.int32).at[perm].set(jnp.arange(seq_len, dtype=jnp.int32))
+            empty_mask = ranks < empty_count
+            dest = jnp.nonzero(~empty_mask, size=seq_len, fill_value=0)[0]
+            out = jnp.full((total_len,), empty_token_id, dtype=seq.dtype).at[dest].set(seq)
+            return out
+
+        return jax.vmap(per_example)(input_ids, keys, empty_token_fracs)[:, :seq_len]
 
     def configure_functions(self) -> TrainerConfigureFunctionOutput:
         """
@@ -235,14 +267,15 @@ class DiffusionTrainer(Trainer):
             self._sample_log_snr,
             self._sample_noise_mask,
             self.mixing_schedule.sample_marginals,
+            self._insert_empty_tokens,
             self.arguments.loss_config,
             self.scheduler,
             self.arguments.step_partition_spec,
             self.arguments.gradient_accumulation_steps,
             True,  # is_train
         )
+        static_argnames = (2, 3, 4, 5, 6, 7, 8, 9, 10, 11)
 
-        static_argnames = (2, 3, 4, 5, 6, 7, 8, 9, 10)
         sharded_training_step_function = jax.jit(
             training_step,
             in_shardings=(self.state_shardings, empty_sharding),
