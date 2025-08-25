@@ -237,8 +237,11 @@ class GiddAttention(AttentionModule):
                 warnings.warn("attention_mask should be a boolean array", stacklevel=1)
                 attention_mask = (attention_mask == 1).astype("b1")
 
-        attention_mask = jnp.expand_dims(attention_mask, axis=(-3, -2))
-        attention_mask = jnp.repeat(attention_mask, query.shape[1], -2)
+        if attention_mask.ndim == 2:
+            attention_mask = jnp.expand_dims(attention_mask, axis=(-3, -2))
+            attention_mask = jnp.repeat(attention_mask, query.shape[1], -2)
+        elif attention_mask.ndim == 3:
+            attention_mask = jnp.expand_dims(attention_mask, axis=-3)
         # shape: [Batch, 1, q_len, kv_len]
         
         if self.attention_bias:
