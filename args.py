@@ -16,7 +16,7 @@ def parse_args(
     parser.add_argument("--hidden_size", type=int, default=512, help="Hidden size of the model.")
     parser.add_argument("--head_dim", type=int, default=64, help="Dimension of each attention head.")
     parser.add_argument("--attn_mechanism", type=str, default="vanilla", choices=["auto", "vanilla", "sdpa", "flash_attn2", "ring", "splash", "cudnn", "blockwise", "cuda_flash_attn2", "paged_attention"], help="Attention mechanism to use.")
-    parser.add_argument("--causal_prompt_attn", action=argparse.BooleanOptionalAction, default=True, help="Use causal prompt attention.")
+    parser.add_argument("--causal_prompt_attn", action=argparse.BooleanOptionalAction, default=False, help="Use causal prompt attention.")
     parser.add_argument("--attn_bias", action=argparse.BooleanOptionalAction, default=True, help="Use attention bias in the model.")
     # training schedule
     parser.add_argument("--max_training_steps", type=int, default=100_000, help="Maximum number of training steps.")
