@@ -275,9 +275,11 @@ class DiffusionTrainer(Trainer):
             self.scheduler,
             self.arguments.step_partition_spec,
             self.arguments.gradient_accumulation_steps,
+            self.arguments.loss_aggregation,
+            self.arguments.loss_scale,
             True,  # is_train
         )
-        static_argnames = (2, 3, 4, 5, 6, 7, 8, 9, 10, 11)
+        static_argnames = (2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13)
 
         sharded_training_step_function = jax.jit(
             training_step,

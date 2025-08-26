@@ -278,6 +278,8 @@ def train(args):
     # --- Configuration ---
     arguments = CustomDiffusionConfig(
         ## Diffusion arguments
+        loss_aggregation=args.loss_aggregation,
+        loss_scale=args.loss_scale,
         beta_is_div=args.beta_is_div,
         noise_p_independent=args.max_empty_token_frac,  # 0.0,
         noise_p_linear=args.noise_p_linear,

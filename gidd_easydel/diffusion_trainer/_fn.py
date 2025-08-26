@@ -5,10 +5,8 @@ import typing as tp
 import chex
 import flax.nnx as nn
 import jax
-import jax.profiler
 import jax.numpy as jnp
 import optax
-import wandb
 from eformer.escale import with_sharding_constraint
 from jax.sharding import PartitionSpec
 
@@ -51,7 +49,14 @@ def prepare_batch(
     return batch
 
 
-def compute_loss(loss_fn, state, tree, minibatch) -> tuple[chex.Array, LossMetrics]:
+def compute_loss(
+    loss_fn,
+    state,
+    tree,
+    minibatch,
+    loss_agg="mean",
+    loss_scale=1.0,
+) -> tuple[chex.Array, LossMetrics]:
     input_ids = minibatch.get("input_ids", None)
     labels = minibatch.get("labels", None)
     log_snr = minibatch.get("log_snr", None)
@@ -76,6 +81,7 @@ def compute_loss(loss_fn, state, tree, minibatch) -> tuple[chex.Array, LossMetri
         log_snr=log_snr,
         return_aux=True,
     )
+    loss = loss.astype(jnp.float32)
 
     # for i, (attn, logs) in enumerate(zip(outputs.attentions, outputs.attention_logits)):
     #     if attn is not None:
@@ -88,6 +94,7 @@ def compute_loss(loss_fn, state, tree, minibatch) -> tuple[chex.Array, LossMetri
     #         metrics[f"attn/layer.{i}.max_logit"] = attn_max_logit
     #         # metrics[f"attn/layer.{i}.median_logit"] = attn_median_logit
 
+
     # Apply mask and compute normalized loss/metrics
     if noise_mask is not True:
         # Mask the loss and all metrics
@@ -97,8 +104,11 @@ def compute_loss(loss_fn, state, tree, minibatch) -> tuple[chex.Array, LossMetri
         # Compute normalization factor
         mask_sum = noise_mask.sum()
         
-        # Normalize loss and metrics by the number of valid tokens
-        avg_loss = masked_loss.sum() / jnp.maximum(mask_sum, 1.0)
+        agg_loss = masked_loss.sum()
+        if loss_agg == "mean":
+            # Normalize loss and metrics by the number of valid tokens
+            agg_loss = agg_loss / jnp.maximum(mask_sum, 1.0)
+
         metrics = {
             k: v.sum() / jnp.maximum(mask_sum, 1.0)
             for k, v in masked_metrics.items()
@@ -106,13 +116,16 @@ def compute_loss(loss_fn, state, tree, minibatch) -> tuple[chex.Array, LossMetri
         metrics["num_tokens"] = mask_sum
     else:
         # No mask - compute mean directly
-        avg_loss = loss.mean()
+        if loss_agg == "sum":
+            agg_loss = loss.sum()
+        else:
+            agg_loss = loss.mean()
         metrics = {k: v.mean() for k, v in metrics.items()}
         metrics["num_tokens"] = jnp.prod(jnp.array(loss.shape))
 
 
-    return avg_loss, LossMetrics(
-        loss=avg_loss,
+    return loss_scale * agg_loss, LossMetrics(
+        loss=agg_loss,
         other_metrics=metrics,
     )
 
@@ -129,6 +142,8 @@ def training_step(
     learning_rate_fn: optax.Schedule = None,
     partition_spec: PartitionSpec | None = None,
     gradient_accumulation_steps: int = 1,
+    loss_aggregation: str = "mean",
+    loss_scale: float = 1.0,
     is_training: bool = True,
 ) -> tuple[EasyDeLState, LossMetrics]:
 
@@ -150,7 +165,11 @@ def training_step(
         insert_empty_tokens_fn=insert_empty_tokens_fn,
     )
 
-    _compute_loss = functools.partial(compute_loss, loss_fn, state)
+    _compute_loss = functools.partial(
+        compute_loss, loss_fn, state,
+        loss_agg=loss_aggregation,
+        loss_scale=loss_scale,
+    )
 
     if is_training:
         # Compute gradients and metrics across minibatches.

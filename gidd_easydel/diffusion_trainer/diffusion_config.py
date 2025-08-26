@@ -17,6 +17,8 @@ class DiffusionConfig(TrainingArguments):
         "help": "Name of the field in the dataset that contains the tokenized text."
     })
     # loss arguments
+    loss_aggregation: str = field(default="mean", metadata={"help": "Loss aggregation method."})
+    loss_scale: float = field(default=1.0, metadata={"help": "Loss scaling factor."})
     beta_is_div: float = field(default=1.0, metadata={"help": "Weight of the IS-divergence loss"})
     # input augmentation
     max_empty_token_frac: float = field(default=0.0, metadata={"help": "Maximum fraction of empty tokens to insert."})
