@@ -336,7 +336,7 @@ def train(args):
         log_grad_norms=args.log_grad_norms,
     )
 
-    jax.experimental.multihost_utils.sync_global_devices("gidd_easydel:before_load_dataset")
+    # jax.experimental.multihost_utils.sync_global_devices("gidd_easydel:before_load_dataset")
 
     if args.sampler == "simple":
         ddf = dd.read_parquet(
@@ -381,7 +381,7 @@ def train(args):
 
     train_dataset = IterableDataset.from_generator(generate_dataset)
 
-    jax.experimental.multihost_utils.sync_global_devices("gidd_easydel:after_load_dataset")
+    # jax.experimental.multihost_utils.sync_global_devices("gidd_easydel:after_load_dataset")
     logger.info("Loaded dataset on all hosts")
 
     # train_dataset = load_dataset(
@@ -424,7 +424,7 @@ def train(args):
     if trainer.memory_monitor is not None:
         trainer.memory_monitor.start_monitoring()
 
-    jax.experimental.multihost_utils.sync_global_devices("gidd_easydel:before_training")
+    # jax.experimental.multihost_utils.sync_global_devices("gidd_easydel:before_training")
     logger.info("Starting training...")
     trainer.train()
-    jax.experimental.multihost_utils.sync_global_devices("gidd_easydel:after_training")
+    # jax.experimental.multihost_utils.sync_global_devices("gidd_easydel:after_training")
