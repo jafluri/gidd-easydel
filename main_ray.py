@@ -1,12 +1,17 @@
 import os
 import json
+import uuid
+import logging
 
 import ray
 from pprint import pprint
-from ray.util.placement_group import placement_group
+from ray.util.placement_group import placement_group, remove_placement_group
 from ray.util.scheduling_strategies import PlacementGroupSchedulingStrategy, NodeAffinitySchedulingStrategy
 from ray.autoscaler.sdk import request_resources
 from ray._private.accelerators import TPUAcceleratorManager
+
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
 
 ray.init(runtime_env={"py_modules": [os.path.join(os.getcwd(), "gidd_easydel")]})
 
@@ -16,9 +21,12 @@ TPU_POD_COUNT = os.getenv("TPU_POD_COUNT", "1")
 TPU_ZONE = os.getenv("TPU_ZONE", "")
 PORT = int(os.environ.get("COORD_PORT", "9876"))
 
+RAY_RUN_ID = os.getenv("RAY_RUN_ID", str(uuid.uuid4()))
+
+WANDB_ENTITY = os.getenv("WANDB_ENTITY", None)
+WANDB_PROJECT = os.getenv("WANDB_PROJECT", None)
+
 num_slices = int(TPU_POD_COUNT)
-
-
 
 base_env = {
     "EASYDEL_PROFILING": os.getenv("EASYDEL_PROFILING", "0"),  # Enable EasyDeL profiling.
@@ -41,11 +49,13 @@ if not TPU_ZONE:
 else:
     SAVE_DIRECTORY = os.getenv("SAVE_DIRECTORY", f"gs://gidd-checkpoints_{TPU_ZONE[:-2]}")
     DATA_FILES = os.getenv("DATA_FILES", f"gs://nemotron-cc_{TPU_ZONE[:-2]}")
-WANDB_ENTITY = os.getenv("WANDB_ENTITY", None)
+
 
 from args import parse_args
 ARGS = parse_args(SAVE_DIRECTORY, WANDB_ENTITY, DATA_FILES)
 assert ARGS.data_files is not None
+
+ARGS.ray_run_id = RAY_RUN_ID
 
 
 @ray.remote
@@ -63,7 +73,7 @@ def main():
         raise e
 
 
-def run_on_host(remote_fn, host_info, env):
+def submit_to_host(remote_fn, host_info, env):
     call = remote_fn.options(
         num_cpus=0,
         scheduling_strategy=NodeAffinitySchedulingStrategy(node_id=host_info["node_id"], soft=False),
@@ -73,7 +83,7 @@ def run_on_host(remote_fn, host_info, env):
     return call
 
 
-def run_on_slice(remote_fn, slice_info, slice_id, coord_ip, coord_port=PORT):
+def submit_to_slice(remote_fn, slice_info, slice_id, coord_ip, coord_port=PORT):
     print(json.dumps(slice_info, indent=2, sort_keys=True))
     hosts_per_slice = slice_info["num_hosts"]
     calls = []
@@ -89,7 +99,7 @@ def run_on_slice(remote_fn, slice_info, slice_id, coord_ip, coord_port=PORT):
         else:
             env = dict(base_env)
         calls.append(
-            run_on_host(remote_fn, slice_info["hosts"][host_id], env)
+            submit_to_host(remote_fn, slice_info["hosts"][host_id], env)
         )
     return calls
 
@@ -118,50 +128,118 @@ def discover_slice():
     pg = placement_group(bundles, strategy="STRICT_SPREAD")
     ray.get(pg.ready())
 
-    host_info = ray.get([
-        discover_hosts_on_slice.options(scheduling_strategy=PlacementGroupSchedulingStrategy(pg, i, True)).remote()
-        for i in range(num_hosts)
-    ])
+    try:
+        host_info = ray.get([
+            discover_hosts_on_slice.options(scheduling_strategy=PlacementGroupSchedulingStrategy(pg, i, True)).remote()
+            for i in range(num_hosts)
+        ])
 
-    return {
-        "node_id": ray.get_runtime_context().get_node_id(),
-        "ip": ray.util.get_node_ip_address(),
-        "pod_name": pod_name,
-        "num_hosts": num_hosts,
-        "num_tpus_per_host": num_tpus_per_host,
-        "tpu_type": tpu_type,
-        "hosts": host_info,
-    }
+        return {
+            "node_id": ray.get_runtime_context().get_node_id(),
+            "ip": ray.util.get_node_ip_address(),
+            "pod_name": pod_name,
+            "num_hosts": num_hosts,
+            "num_tpus_per_host": num_tpus_per_host,
+            "tpu_type": tpu_type,
+            "hosts": host_info,
+        }, pg
+    except:
+        remove_placement_group(pg)
+        raise
 
-def run_on_multislice(remote_fn, tpu_type, num_slices=1):
+
+def submit_to_multislice(remote_fn, tpu_type, num_slices=1):
     label = f"TPU-{tpu_type}-head"
     bundles = [{"CPU": 0, label: 1} for _ in range(num_slices)]
     request_resources(bundles=bundles)
 
     pg = placement_group(bundles, strategy="STRICT_SPREAD")
     ray.get(pg.ready())
+    all_pgs = [pg]
 
-    slice_info = ray.get([
+    results = ray.get([
         discover_slice.options(scheduling_strategy=PlacementGroupSchedulingStrategy(pg, i, True)).remote()
         for i in range(num_slices)
     ])
+    slice_infos, host_pgs = zip(*results)
+    all_pgs.extend(host_pgs)
 
-    coord_ip = slice_info[0]['ip']
+    coord_ip = slice_infos[0]['ip']
 
-    num_procs = sum(
-        slice_info[slice_id]["num_hosts"] * slice_info[slice_id]["num_tpus_per_host"]
-        for slice_id in range(num_slices)
+    # num_procs = sum(
+    #     slice_infos[slice_id]["num_hosts"] * slice_infos[slice_id]["num_tpus_per_host"]
+    #     for slice_id in range(num_slices)
+    # )
+
+    try:
+        calls = []
+        for slice_id in range(num_slices):
+            calls.extend(submit_to_slice(
+                remote_fn=remote_fn,
+                slice_info=slice_infos[slice_id],
+                slice_id=slice_id,
+                coord_ip=coord_ip,
+                coord_port=PORT,
+            ))
+        return calls, all_pgs
+    except:
+        for pg in all_pgs:
+            remove_placement_group(pg)
+        raise
+
+
+
+def run_on_multislice_resumable(
+    remote_fn,
+    tpu_type,
+    num_slices=1,
+    max_errors=0,
+    max_preemptions=128,
+):
+    assert WANDB_ENTITY is not None and WANDB_PROJECT is not None, "W&B entity and project must be set for resumable run"
+    num_preemptions = 0
+    num_errors = 0
+    while True:
+        pgs = []
+        try:
+            calls, pgs = submit_to_multislice(remote_fn, tpu_type, num_slices)
+            ray.get(calls)
+        except (ray.exceptions.RayError, ray.exceptions.RayTaskError) as e:
+            if "preempted" in str(e).lower():
+                num_preemptions += 1
+                logger.warning(f"TPU job preempted ({num_preemptions=}): {e}")
+                if num_preemptions > max_preemptions:
+                    raise
+            else:
+                num_errors += 1
+                logger.warning(f"TPU job failed ({num_errors=}): {e}", exc_info=e)
+                if num_errors > max_errors:
+                    raise
+            
+            # try to resubmit
+            import wandb
+            runs = wandb.Api().runs(
+                path=f"{WANDB_ENTITY}/{WANDB_PROJECT}",
+                filters={"config.ray_run_id": RAY_RUN_ID},
+                order="+created_at",
+            )
+            if len(runs) > 1:
+                logger.warning(f"Found multiple runs with ray_run_id '{RAY_RUN_ID}'. Resuming from newest one.")
+                runs = runs[:1]
+
+            if len(runs) == 1:
+                run = runs[0]
+                logger.info(f"Resuming from W&B run: {run.id}")
+                ARGS.resume_wandb_id = run.id
+        finally:
+            for pg in pgs:
+                remove_placement_group(pg)
+
+
+ray.get(
+    run_on_multislice_resumable(
+        remote_fn=main,
+        tpu_type=TPU_VERSION,
+        num_slices=num_slices,
     )
-
-    calls = []
-    for slice_id in range(num_slices):
-        calls.extend(run_on_slice(
-            remote_fn=remote_fn,
-            slice_info=slice_info[slice_id],
-            slice_id=slice_id,
-            coord_ip=coord_ip,
-            coord_port=PORT,
-        ))
-    return calls
-
-ray.get(run_on_multislice(remote_fn=main, tpu_type=TPU_VERSION, num_slices=num_slices))
+)
