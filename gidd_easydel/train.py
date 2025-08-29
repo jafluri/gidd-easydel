@@ -104,8 +104,6 @@ def get_latest_checkpoint(checkpoint_dir):
 
 
 def train(args):
-    # jax.config.update('jax_disable_jit', True)
-
     num_procs = jax.process_count()
     num_local_devices = jax.local_device_count()
     num_devices = jax.device_count()
@@ -425,7 +423,7 @@ def train(args):
             "tpu_version": os.getenv("TPU_VERSION"),
             "tpu_zone": os.getenv("TPU_ZONE"),
             "tpu_pod_count": os.getenv("TPU_POD_COUNT"),
-            "num_procs": num_procs,
+            "process_count": num_procs,
             "num_local_devices": num_local_devices,
             "num_devices": num_devices,
         }, allow_val_change=True)
