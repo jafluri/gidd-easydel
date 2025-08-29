@@ -16,6 +16,7 @@ def parse_args(
     parser.add_argument("--num_layers", type=int, default=8, help="Number of layers in the model.")
     parser.add_argument("--hidden_size", type=int, default=512, help="Hidden size of the model.")
     parser.add_argument("--head_dim", type=int, default=64, help="Dimension of each attention head.")
+    parser.add_argument("--num_attn_heads", type=int, default=None, help="Number of attention heads. `--head_dim` is ignored if this is provided.")
     parser.add_argument("--attn_mechanism", type=str, default="vanilla", choices=["auto", "vanilla", "sdpa", "flash_attn2", "ring", "splash", "cudnn", "blockwise", "cuda_flash_attn2", "paged_attention"], help="Attention mechanism to use.")
     parser.add_argument("--causal_prompt_attn", action=argparse.BooleanOptionalAction, default=False, help="Use causal prompt attention.")
     parser.add_argument("--attn_bias", action=argparse.BooleanOptionalAction, default=True, help="Use attention bias in the model.")
@@ -67,7 +68,7 @@ def parse_args(
     parser.add_argument("--sampler", type=str, default="buckets", choices=["buckets", "buffered", "simple"], help="Sampler to use.")
     # others
     parser.add_argument("--seed", type=int, default=0, help="Random seed for reproducibility.")
-    parser.add_argument("--dtype", type=str, default="bf16", choices=["fp32", "bf16"], help="Training data type.")
+    parser.add_argument("--dtype", type=str, default="bf16", choices=["fp32", "bf16"], help="Activation data type.")
     parser.add_argument("--sharding", type=str, default="fsdp", help="Sharding strategy to use.")
     parser.add_argument("--compile_aot", action=argparse.BooleanOptionalAction, default=False, help="Compile model ahead of time for faster training.")
     # logging

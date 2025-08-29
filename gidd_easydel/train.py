@@ -133,6 +133,12 @@ def train(args):
     num_layers = args.num_layers
     hidden_size = args.hidden_size
     head_dim = args.head_dim
+    if args.num_attn_heads and args.num_attn_heads > 0:
+        assert hidden_size % args.num_attn_heads == 0, "Hidden size must be divisible by number of attention heads."
+        head_dim = hidden_size // args.num_attn_heads
+    else:
+        assert hidden_size % head_dim == 0, "Hidden size must be divisible by head dimension."
+        args.num_attn_heads = hidden_size // head_dim
 
     lr = args.lr  # 0.5
     aux_lr = lr * args.aux_lr_factor  # 1e-3
