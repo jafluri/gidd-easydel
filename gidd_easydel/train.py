@@ -124,6 +124,11 @@ def train(args):
 
     max_length = args.max_seq_len
     total_batch_size = args.batch_size
+    micro_batch_size = args.micro_batch_size
+    if micro_batch_size is None or micro_batch_size <= 0:
+        micro_batch_size = total_batch_size
+    assert total_batch_size % micro_batch_size == 0, "Total batch size must be divisible by micro batch size."
+    grad_accum_steps = total_batch_size // micro_batch_size
 
     num_layers = args.num_layers
     hidden_size = args.hidden_size
@@ -306,6 +311,7 @@ def train(args):
         },
         num_train_epochs=1,
         total_batch_size=total_batch_size,
+        gradient_accumulation_steps=grad_accum_steps,
         do_last_save=True,
         max_sequence_length=max_length,
         # This is MANDATORY for streaming datasets. It tells the trainer how many

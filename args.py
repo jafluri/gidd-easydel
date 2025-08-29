@@ -12,6 +12,7 @@ def parse_args(
     # architecture
     parser.add_argument("--max_seq_len", type=int, default=512, help="Maximum sequence length for the model.")
     parser.add_argument("--batch_size", type=int, default=8, help="Total batch size for training.")
+    parser.add_argument("--micro_batch_size", type=int, default=None, help="Micro batch size for gradient accumulation. Default: Same as batch size.")
     parser.add_argument("--num_layers", type=int, default=8, help="Number of layers in the model.")
     parser.add_argument("--hidden_size", type=int, default=512, help="Hidden size of the model.")
     parser.add_argument("--head_dim", type=int, default=64, help="Dimension of each attention head.")
@@ -29,7 +30,7 @@ def parse_args(
     parser.add_argument("--resid_scale", type=float, default=4.0, help="Scale for residual connections.")
     parser.add_argument("--head_scale", type=float, default=512, help="Scale for output layer.")
     # optimizer
-    parser.add_argument("--loss_aggregation", type=str, default="mean", choices=["mean", "sum"], help="Loss aggregation method.")
+    parser.add_argument("--loss_aggregation", type=str, default="sum", choices=["mean", "sum"], help="Loss aggregation method.")
     parser.add_argument("--loss_scale", type=float, default=1.0, help="Loss scaling factor.")
     parser.add_argument("--optimizer", type=str, default="laprop", choices=["laprop", "adam"], help="Optimizer to use.")
     parser.add_argument("--lr", type=float, default=0.5, help="Learning rate for the optimizer.")
