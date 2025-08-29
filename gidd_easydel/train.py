@@ -196,7 +196,7 @@ def train(args):
                 head_scaling=head_scale / hidden_size,
                 use_qk_norm=True,
                 sharding_axis_dims=get_sharding_axis(args.sharding, total_batch_size, num_procs, num_devices),
-                sharding_dcn_axis_dims=get_sharding_axis(args.sharding, total_batch_size, num_procs, num_devices),
+                # sharding_dcn_axis_dims=get_sharding_axis(args.sharding, total_batch_size, num_procs, num_devices),
                 partition_axis=ed.PartitionAxis(),
                 gradient_checkpointing=ed.EasyDeLGradientCheckPointers.NONE,
                 attn_mechanism=args.attn_mechanism,
