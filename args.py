@@ -8,6 +8,12 @@ def parse_args(
     default_data_files="/local/home/dvruette/nemotron_tokenized/",
 ):
     command = sys.argv
+    if "--resume_wandb_id" in command:
+        # remove the wandb_id and subsequent argument from the command
+        idx = command.index("--resume_wandb_id")
+        command = command[:idx] + command[idx+2:]
+    command = " ".join(command)
+
     parser = argparse.ArgumentParser(description="Run the diffusion training process.")
     # architecture
     parser.add_argument("--max_seq_len", type=int, default=512, help="Maximum sequence length for the model.")
