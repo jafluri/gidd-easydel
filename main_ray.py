@@ -188,7 +188,6 @@ def submit_to_multislice(remote_fn, tpu_type, num_slices=1):
         raise
 
 
-
 def run_on_multislice_resumable(
     remote_fn,
     tpu_type,
