@@ -86,7 +86,9 @@ def wsd_lr_schedule(total_steps: int, base_lr: float, warmup_steps: int = 0, coo
 
 def get_latest_checkpoint(checkpoint_dir):
     save_path = ed.EasyPath(checkpoint_dir)
+    print(save_path)
     checkpoint_files = list(save_path.glob("run-*"))
+    print(checkpoint_files)
     assert len(checkpoint_files) > 0, f"No checkpoints found in {checkpoint_dir}"
 
     def get_mtime(path):
@@ -98,6 +100,8 @@ def get_latest_checkpoint(checkpoint_dir):
     checkpoint_files.sort(key=get_mtime)
 
     latest_ckpt = checkpoint_files[-1]
+    print(latest_ckpt)
+    print(latest_ckpt.stem())
     step = int(latest_ckpt.stem().split("-")[-1])
 
     return latest_ckpt, step
