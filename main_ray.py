@@ -203,16 +203,22 @@ def run_on_multislice_resumable(
         try:
             calls, pgs = submit_to_multislice(remote_fn, tpu_type, num_slices)
             ray.get(calls)
-        except (ray.exceptions.RayError, ray.exceptions.RayTaskError) as e:
-            if "preempted" in str(e).lower():
+        except (
+            ray.exceptions.RayError,
+            ray.exceptions.RayTaskError,
+            ray.exceptions.TaskUnschedulableError,
+        ) as e:
+            if any(x in str(e).lower() for x in ["preempted", "not schedulable"]):
                 num_preemptions += 1
                 logger.warning(f"TPU job preempted ({num_preemptions=}): {e}")
                 if num_preemptions > max_preemptions:
+                    logger.error("Maximum number of preemptions reached. Exiting.")
                     raise
             else:
                 num_errors += 1
                 logger.warning(f"TPU job failed ({num_errors=}): {e}", exc_info=e)
                 if num_errors > max_errors:
+                    logger.error("Maximum number of errors reached. Exiting.")
                     raise
             
             # try to resubmit
