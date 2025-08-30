@@ -32,7 +32,7 @@ num_slices = int(TPU_POD_COUNT)
 
 base_env = {
     "EASYDEL_PROFILING": os.getenv("EASYDEL_PROFILING", "0"),  # Enable EasyDeL profiling.
-    "EASYDEL_AUTO": "1",  # Enables EasyDeL's automatic sharding configuration.
+    "EASYDEL_AUTO": os.getenv("EASYDEL_AUTO", "1"),  # Enables EasyDeL's automatic sharding configuration.
     "HF_TOKEN": os.getenv("HF_TOKEN_FOR_EASYDEL", ""),  # Hugging Face token.
     "HF_DATASETS_CACHE": "/dev/shm/huggingface-dataset",  # RAM-disk for dataset cache.
     "HF_HOME": "/dev/shm/huggingface",  # RAM-disk for model cache.
