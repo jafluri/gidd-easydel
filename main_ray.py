@@ -15,6 +15,7 @@ logger = logging.getLogger(__name__)
 
 ray.init(runtime_env={"py_modules": [os.path.join(os.getcwd(), "gidd_easydel")]})
 
+VERBOSE = (os.getenv("VERBOSE", "0") == "1")
 
 TPU_VERSION = os.getenv("TPU_VERSION", "v6e-8")
 TPU_POD_COUNT = os.getenv("TPU_POD_COUNT", "1")
@@ -84,7 +85,8 @@ def submit_to_host(remote_fn, host_info, env):
 
 
 def submit_to_slice(remote_fn, slice_info, slice_id, coord_ip, coord_port=PORT):
-    print(json.dumps(slice_info, indent=2, sort_keys=True))
+    if VERBOSE:
+        print(json.dumps(slice_info, indent=2, sort_keys=True))
     hosts_per_slice = slice_info["num_hosts"]
     calls = []
     for host_id in range(hosts_per_slice):
