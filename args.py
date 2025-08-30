@@ -76,6 +76,7 @@ def parse_args(
     parser.add_argument("--seed", type=int, default=0, help="Random seed for reproducibility.")
     parser.add_argument("--dtype", type=str, default="bf16", choices=["fp32", "bf16"], help="Activation data type.")
     parser.add_argument("--sharding", type=str, default="fsdp", help="Sharding strategy to use.")
+    parser.add_argument("--dcn_sharding", type=str, default=None, help="Sharding strategy for the DCN layers. If None, EasyDeL default.")
     parser.add_argument("--compile_aot", action=argparse.BooleanOptionalAction, default=False, help="Compile model ahead of time for faster training.")
     # logging
     parser.add_argument("--track_memory", type=float, default=None, help="Track memory usage during training.")

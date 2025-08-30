@@ -165,6 +165,11 @@ def train(args):
 
     # --- Model Definition ---
 
+    args.sharding_axis_dims = get_sharding_axis(args.sharding, total_batch_size, num_procs, num_devices)
+    args.sharding_dcn_axis_dims = None
+    if args.dcn_sharding is not None:
+        args.sharding_dcn_axis_dims = get_sharding_axis(args.dcn_sharding, total_batch_size, num_procs, num_devices)
+
     if args.resume_wandb_id:
         run = wandb.Api().run(f"EasyDeL-diffusiontrainer-Gidd/{args.resume_wandb_id}")
         args.save_directory = run.config["save_directory"]
@@ -175,7 +180,8 @@ def train(args):
             dtype=dtype,
             param_dtype=dtype,
             precision=jax.lax.Precision.HIGH,
-            sharding_axis_dims=(1, -1, 1, 1, 1),
+            sharding_axis_dims=args.sharding_axis_dims,
+            sharding_dcn_axis_dims=args.sharding_dcn_axis_dims,
             partition_axis=ed.PartitionAxis(),
         )
         model_state = model_state.replace(step=jnp.asarray(0))
@@ -204,8 +210,8 @@ def train(args):
                 weight_scaling=1.0,
                 head_scaling=head_scale / hidden_size,
                 use_qk_norm=True,
-                sharding_axis_dims=get_sharding_axis(args.sharding, total_batch_size, num_procs, num_devices),
-                # sharding_dcn_axis_dims=get_sharding_axis(args.sharding, total_batch_size, num_procs, num_devices),
+                sharding_axis_dims=args.sharding_axis_dims,
+                sharding_dcn_axis_dims=args.sharding_dcn_axis_dims,
                 partition_axis=ed.PartitionAxis(),
                 gradient_checkpointing=ed.EasyDeLGradientCheckPointers.NONE,
                 attn_mechanism=args.attn_mechanism,
