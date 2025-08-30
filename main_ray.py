@@ -25,6 +25,7 @@ PORT = int(os.environ.get("COORD_PORT", "9876"))
 
 GIDD_RUN_ID = os.getenv("GIDD_RUN_ID", str(uuid.uuid4()))
 
+WANDB_API_KEY = os.getenv("WANDB_API_KEY_FOR_EASYDEL", "")
 WANDB_ENTITY = os.getenv("WANDB_ENTITY", None)
 WANDB_PROJECT = os.getenv("WANDB_PROJECT", None)
 
@@ -38,7 +39,7 @@ base_env = {
     "HF_HOME": "/dev/shm/huggingface",  # RAM-disk for model cache.
     "HF_DATASETS_OFFLINE": "1",  # Prevent crash if HF is down
     "TRANSFORMERS_OFFLINE": "0",  # Need for tokenizer
-    "WANDB_API_KEY": os.getenv("WANDB_API_KEY_FOR_EASYDEL", ""),  # W&B API key.
+    "WANDB_API_KEY": WANDB_API_KEY,  # W&B API key.
     "TPU_NAME": os.getenv("TPU_NAME", ""),
     "TPU_VERSION": TPU_VERSION,
     "TPU_ZONE": TPU_ZONE,
@@ -229,7 +230,7 @@ def run_on_multislice_resumable(
             
             # try to resubmit
             import wandb
-            runs = wandb.Api().runs(
+            runs = wandb.Api(api_key=WANDB_API_KEY).runs(
                 path=f"{WANDB_ENTITY}/{WANDB_PROJECT}",
                 filters={"config.gidd_run_id": GIDD_RUN_ID},
                 order="+created_at",
