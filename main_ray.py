@@ -35,7 +35,8 @@ base_env = {
     "HF_TOKEN": os.getenv("HF_TOKEN_FOR_EASYDEL", ""),  # Hugging Face token.
     "HF_DATASETS_CACHE": "/dev/shm/huggingface-dataset",  # RAM-disk for dataset cache.
     "HF_HOME": "/dev/shm/huggingface",  # RAM-disk for model cache.
-    "HF_DATASETS_OFFLINE": "0",  # Allow online dataset access.
+    "HF_DATASETS_OFFLINE": "1",  # Prevent crash if HF is down
+    "TRANSFORMERS_OFFLINE": "0",  # Need for tokenizer
     "WANDB_API_KEY": os.getenv("WANDB_API_KEY_FOR_EASYDEL", ""),  # W&B API key.
     "TPU_NAME": os.getenv("TPU_NAME", ""),
     "TPU_VERSION": TPU_VERSION,
@@ -216,6 +217,8 @@ def run_on_multislice_resumable(
                 if num_preemptions > max_preemptions:
                     logger.error("Maximum number of preemptions reached. Exiting.")
                     raise
+            elif "couldn't connect to 'https://huggingface.co'" in str(e).lower():
+                logger.warning(f"TPU job failed (couldn't connect to HF). Resubmitting without penalty: {e}", exc_info=e)
             else:
                 num_errors += 1
                 logger.warning(f"TPU job failed ({num_errors=}): {e}", exc_info=e)
