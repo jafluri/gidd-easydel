@@ -1,3 +1,4 @@
+import time
 import os
 import json
 import uuid
@@ -22,7 +23,7 @@ TPU_POD_COUNT = os.getenv("TPU_POD_COUNT", "1")
 TPU_ZONE = os.getenv("TPU_ZONE", "")
 PORT = int(os.environ.get("COORD_PORT", "9876"))
 
-RAY_RUN_ID = os.getenv("RAY_RUN_ID", str(uuid.uuid4()))
+GIDD_RUN_ID = os.getenv("GIDD_RUN_ID", str(uuid.uuid4()))
 
 WANDB_ENTITY = os.getenv("WANDB_ENTITY", None)
 WANDB_PROJECT = os.getenv("WANDB_PROJECT", None)
@@ -57,8 +58,8 @@ from args import parse_args
 ARGS = parse_args(SAVE_DIRECTORY, WANDB_ENTITY, DATA_FILES)
 assert ARGS.data_files is not None
 
-ARGS.ray_run_id = RAY_RUN_ID
-
+ARGS.gidd_run_id = GIDD_RUN_ID
+ARGS.ray_job_id = ray.runtime_context.get_runtime_context().get_job_id()
 
 @ray.remote
 def main():
@@ -230,11 +231,11 @@ def run_on_multislice_resumable(
             import wandb
             runs = wandb.Api().runs(
                 path=f"{WANDB_ENTITY}/{WANDB_PROJECT}",
-                filters={"config.ray_run_id": RAY_RUN_ID},
+                filters={"config.gidd_run_id": GIDD_RUN_ID},
                 order="+created_at",
             )
             if len(runs) > 1:
-                logger.warning(f"Found multiple runs with ray_run_id '{RAY_RUN_ID}'. Resuming from newest one.")
+                logger.warning(f"Found multiple runs with gidd_run_id '{GIDD_RUN_ID}'. Resuming from newest one.")
                 runs = runs[:1]
 
             if len(runs) == 1:
@@ -244,6 +245,8 @@ def run_on_multislice_resumable(
         finally:
             for pg in pgs:
                 remove_placement_group(pg)
+            # let's just chill for a bit
+            time.sleep(5)
 
 
 ray.get(
