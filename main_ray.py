@@ -67,6 +67,23 @@ def main():
     import easydel as ed
     from gidd_easydel.train import train
 
+    # try to resume run
+    import wandb
+    runs = wandb.Api(api_key=WANDB_API_KEY).runs(
+        path=f"{WANDB_ENTITY}/{WANDB_PROJECT}",
+        filters={"config.gidd_run_id": GIDD_RUN_ID},
+        order="+created_at",
+    )
+    if len(runs) > 1:
+        logger.warning(f"Found multiple runs with gidd_run_id '{GIDD_RUN_ID}'. Resuming from newest one.")
+        runs = runs[:1]
+
+    if len(runs) == 1:
+        run = runs[0]
+        logger.info(f"Resuming from W&B run: {run.id}")
+        ARGS.resume_wandb_id = run.id
+        assert ARGS.resume_wandb_id == run.id, "what???"
+
     try:
         pprint(ARGS)
         train(ARGS)
@@ -233,23 +250,8 @@ def run_on_multislice_resumable(
                 if num_errors > max_errors:
                     logger.error("Maximum number of errors reached. Exiting.")
                     raise
-            
-            # try to resubmit
-            logger.info("Attempting to resubmit...")
-            import wandb
-            runs = wandb.Api(api_key=WANDB_API_KEY).runs(
-                path=f"{WANDB_ENTITY}/{WANDB_PROJECT}",
-                filters={"config.gidd_run_id": GIDD_RUN_ID},
-                order="+created_at",
-            )
-            if len(runs) > 1:
-                logger.warning(f"Found multiple runs with gidd_run_id '{GIDD_RUN_ID}'. Resuming from newest one.")
-                runs = runs[:1]
 
-            if len(runs) == 1:
-                run = runs[0]
-                logger.info(f"Resuming from W&B run: {run.id}")
-                ARGS.resume_wandb_id = run.id
+            logger.info("Attempting to resubmit...")
         finally:
             logger.info("Releasing placement groups...")
             for pg in pgs:
@@ -261,7 +263,6 @@ def run_on_multislice_resumable(
         logger.info("All done!")
     else:
         logger.error("Failed to complete multislice submission after retries.")
-
 
 
 ray.get(
