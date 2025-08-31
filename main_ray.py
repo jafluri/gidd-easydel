@@ -255,7 +255,10 @@ def run_on_multislice_resumable(
         finally:
             logger.info("Releasing placement groups...")
             for pg in pgs:
-                remove_placement_group(pg)
+                try:
+                    remove_placement_group(pg)
+                except Exception as e:
+                    logger.warning(f"Failed to remove placement group {pg}: {e}", exc_info=e)
             # let's just chill for a bit
             time.sleep(5)
 
