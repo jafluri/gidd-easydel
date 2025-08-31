@@ -71,10 +71,11 @@ def main():
         pprint(ARGS)
         train(ARGS)
     except Exception as e:
-        import traceback
-        print("An error occurred during training:")
-        traceback.print_exc()
-        raise e
+        logger.error("An error occurred during training:", exc_info=e)
+        raise
+    else:
+        logger.info("Successfully completed training")
+    
 
 
 def submit_to_host(remote_fn, host_info, env):
@@ -203,16 +204,21 @@ def run_on_multislice_resumable(
     assert WANDB_ENTITY is not None and WANDB_PROJECT is not None, "W&B entity and project must be set for resumable run"
     num_preemptions = 0
     num_errors = 0
-    while True:
+    done = False
+    for _ in range(max_errors + max_preemptions):
         pgs = []
         try:
             calls, pgs = submit_to_multislice(remote_fn, tpu_type, num_slices)
             ray.get(calls)
+            logger.info("Successfully completed multislice submission")
+            done = True
+            break
         except (
             ray.exceptions.RayError,
             ray.exceptions.RayTaskError,
             ray.exceptions.TaskUnschedulableError,
         ) as e:
+            logger.info("Caught an error during multislice submission, handling...")
             if any(x in str(e).lower() for x in ["preempted", "not schedulable"]):
                 num_preemptions += 1
                 logger.warning(f"TPU job preempted ({num_preemptions=}): {e}")
@@ -229,6 +235,7 @@ def run_on_multislice_resumable(
                     raise
             
             # try to resubmit
+            logger.info("Attempting to resubmit...")
             import wandb
             runs = wandb.Api(api_key=WANDB_API_KEY).runs(
                 path=f"{WANDB_ENTITY}/{WANDB_PROJECT}",
@@ -244,10 +251,17 @@ def run_on_multislice_resumable(
                 logger.info(f"Resuming from W&B run: {run.id}")
                 ARGS.resume_wandb_id = run.id
         finally:
+            logger.info("Releasing placement groups...")
             for pg in pgs:
                 remove_placement_group(pg)
             # let's just chill for a bit
             time.sleep(5)
+
+    if done:
+        logger.info("All done!")
+    else:
+        logger.error("Failed to complete multislice submission after retries.")
+
 
 
 ray.get(
