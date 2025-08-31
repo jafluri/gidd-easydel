@@ -268,10 +268,8 @@ def run_on_multislice_resumable(
         logger.error("Failed to complete multislice submission after retries.")
 
 
-ray.get(
-    run_on_multislice_resumable(
-        remote_fn=main,
-        tpu_type=TPU_VERSION,
-        num_slices=num_slices,
-    )
+run_on_multislice_resumable(
+    remote_fn=main,
+    tpu_type=TPU_VERSION,
+    num_slices=num_slices,
 )
