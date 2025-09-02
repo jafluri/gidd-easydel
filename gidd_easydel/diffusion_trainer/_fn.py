@@ -124,7 +124,7 @@ def compute_loss(
         metrics["num_tokens"] = jnp.prod(jnp.array(loss.shape))
 
 
-    return loss_scale * agg_loss, LossMetrics(
+    return agg_loss * loss_scale, LossMetrics(
         loss=agg_loss,
         other_metrics=metrics,
     )
