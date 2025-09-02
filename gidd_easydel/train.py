@@ -13,6 +13,8 @@ import optax
 import chex
 import tqdm
 import wandb
+from eformer.loggings import get_logger
+from eformer.paths import ePath
 from jax import numpy as jnp
 from transformers import AutoTokenizer
 from datasets import IterableDataset
@@ -23,7 +25,7 @@ from .model import GiddForDiffusionLM, GiddConfig
 from .optimizer import lapropw
 
 
-logger = ed.utils.get_logger(__name__)
+logger = get_logger(__name__)
 
 
 def get_sharding_axis(strategy: str, batch_size: int, num_procs: int, num_devices: int):
@@ -85,7 +87,7 @@ def wsd_lr_schedule(total_steps: int, base_lr: float, warmup_steps: int = 0, coo
 
 
 def get_latest_checkpoint(checkpoint_dir):
-    save_path = ed.EasyPath(checkpoint_dir)
+    save_path = ePath(checkpoint_dir)
     checkpoint_files = list(save_path.glob("run-*/config.json"))
     assert len(checkpoint_files) > 0, f"No checkpoints found in {checkpoint_dir}"
 
@@ -184,7 +186,7 @@ def train(args):
             sharding_dcn_axis_dims=args.sharding_dcn_axis_dims,
             partition_axis=ed.PartitionAxis(),
         )
-        model_state = model_state.replace(step=jnp.asarray(0))
+        # model_state = model_state.replace(step=jnp.asarray(0))
     else:
         args.save_directory = os.path.join(
             args.save_directory,
@@ -193,6 +195,7 @@ def train(args):
             args.wandb_name,
             datetime.now().strftime("%H-%M-%S"),
         )
+        logger.info(f"Saving models to {args.save_directory}")
         model = GiddForDiffusionLM(
             config=GiddConfig(
                 vocab_size=len(tokenizer),
@@ -342,6 +345,7 @@ def train(args):
             else None
         ),
         save_optimizer_state=True,
+        resume_if_possible=True,
         clip_grad=1.0,
         report_steps=50,
         log_steps=100,
