@@ -14,7 +14,7 @@ from ray._private.accelerators import TPUAcceleratorManager
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-ray.init(runtime_env={"py_modules": [os.path.join(os.getcwd(), "gidd_easydel")]})
+ray.init()
 
 VERBOSE = (os.getenv("VERBOSE", "0") == "1")
 
@@ -225,7 +225,7 @@ def run_on_multislice_resumable(
     num_errors = 0
     done = False
     for _ in range(max_errors + max_preemptions):
-        pgs = []
+        calls, pgs = [], []
         try:
             calls, pgs = submit_to_multislice(remote_fn, tpu_type, num_slices)
             ray.get(calls)
@@ -255,6 +255,12 @@ def run_on_multislice_resumable(
 
             logger.info("Attempting to resubmit...")
         finally:
+            logger.info("Canceling remaining tasks...")
+            for call in calls:
+                try:
+                    ray.cancel(call)
+                except Exception as e:
+                    logger.warning(f"Failed to cancel call {call}: {e}", exc_info=e)
             logger.info("Releasing placement groups...")
             for pg in pgs:
                 try:
