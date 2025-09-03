@@ -146,6 +146,8 @@ def discover_slice():
     num_tpus_per_host = TPUAcceleratorManager.get_current_node_num_accelerators()
     tpu_type = TPUAcceleratorManager._get_current_node_tpu_pod_type()
 
+    logger.info(f"Discovered slice {pod_name=}: {num_hosts=}, {num_tpus_per_host=}, {tpu_type=}")
+
     bundles = [{"CPU": 0, pod_name: 1} for _ in range(num_hosts)]
     request_resources(bundles=bundles)
     pg = placement_group(bundles, strategy="STRICT_SPREAD")
