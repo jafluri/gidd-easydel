@@ -183,7 +183,17 @@ def train(args):
         except Exception as e:
             logger.warning(f"Failed to resume from checkpoint: {e}")
             args.resume_wandb_id = None
-    
+    else:
+        args.save_directory = os.path.join(
+            args.save_directory,
+            args.wandb_tags,
+            datetime.now().strftime("%Y-%m-%d"),
+            args.wandb_name,
+            datetime.now().strftime("%H-%M-%S"),
+        )
+
+    logger.info(f"Saving models to {args.save_directory}")
+
     if has_checkpoint:
         resume_if_possible = True
         model_state = ed.EasyDeLState.load_state(
@@ -198,14 +208,6 @@ def train(args):
         # model_state = model_state.replace(step=jnp.asarray(0))
     else:
         resume_if_possible = False
-        args.save_directory = os.path.join(
-            args.save_directory,
-            args.wandb_tags,
-            datetime.now().strftime("%Y-%m-%d"),
-            args.wandb_name,
-            datetime.now().strftime("%H-%M-%S"),
-        )
-        logger.info(f"Saving models to {args.save_directory}")
         model = GiddForDiffusionLM(
             config=GiddConfig(
                 vocab_size=len(tokenizer),
@@ -412,7 +414,7 @@ def train(args):
 
     train_dataset = IterableDataset.from_generator(generate_dataset)
 
-    # jax.experimental.multihost_utils.sync_global_devices("gidd_easydel:after_load_dataset")
+    jax.experimental.multihost_utils.sync_global_devices("gidd_easydel:after_load_dataset")
     logger.info("Loaded dataset on all hosts")
 
     # train_dataset = load_dataset(
@@ -455,7 +457,7 @@ def train(args):
     if trainer.memory_monitor is not None:
         trainer.memory_monitor.start_monitoring()
 
-    # jax.experimental.multihost_utils.sync_global_devices("gidd_easydel:before_training")
+    jax.experimental.multihost_utils.sync_global_devices("gidd_easydel:before_training")
     logger.info("Starting training...")
     trainer.train()
     # jax.experimental.multihost_utils.sync_global_devices("gidd_easydel:after_training")
