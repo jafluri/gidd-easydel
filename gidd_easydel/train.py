@@ -172,11 +172,20 @@ def train(args):
     if args.dcn_sharding is not None:
         args.sharding_dcn_axis_dims = get_sharding_axis(args.dcn_sharding, total_batch_size, num_procs, num_devices)
 
+    has_checkpoint = False
     if args.resume_wandb_id:
         run = wandb.Api().run(f"EasyDeL-diffusiontrainer-Gidd/{args.resume_wandb_id}")
         args.save_directory = run.config["save_directory"]
-        checkpoint_path, start_step = get_latest_checkpoint(os.path.join(args.save_directory, "gidd"))
-        logger.info(f"Resuming from checkpoint: {checkpoint_path}")
+        try:
+            checkpoint_path, start_step = get_latest_checkpoint(os.path.join(args.save_directory, "gidd"))
+            logger.info(f"Resuming from checkpoint: {checkpoint_path}")
+            has_checkpoint = True
+        except Exception as e:
+            logger.warning(f"Failed to resume from checkpoint: {e}")
+            args.resume_wandb_id = None
+    
+    if has_checkpoint:
+        resume_if_possible = True
         model_state = ed.EasyDeLState.load_state(
             checkpoint_path,
             dtype=dtype,
@@ -188,6 +197,7 @@ def train(args):
         )
         # model_state = model_state.replace(step=jnp.asarray(0))
     else:
+        resume_if_possible = False
         args.save_directory = os.path.join(
             args.save_directory,
             args.wandb_tags,
@@ -345,7 +355,7 @@ def train(args):
             else None
         ),
         save_optimizer_state=True,
-        resume_if_possible=True,
+        resume_if_possible=resume_if_possible,
         clip_grad=1.0,
         report_steps=50,
         log_steps=100,
