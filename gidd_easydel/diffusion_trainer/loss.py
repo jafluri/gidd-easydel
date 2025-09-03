@@ -39,12 +39,12 @@ class GiddLoss(nn.Module):
         log_p_t = self.mixing_schedule.marginal_log_probs(log_snr, x_hat)
         log_q_t = self.mixing_schedule.marginal_log_probs_from_ids(log_snr, labels, dtype=dtype)
 
-        log_p_zt = jnp.take_along_axis(log_p_t, input_ids[..., None], axis=-1).squeeze(-1)
-        log_q_zt = jnp.take_along_axis(log_q_t, input_ids[..., None], axis=-1).squeeze(-1)
+        log_p_zt = jnp.take_along_axis(log_p_t, input_ids[..., None], axis=-1).squeeze(-1).astype(jnp.float32)
+        log_q_zt = jnp.take_along_axis(log_q_t, input_ids[..., None], axis=-1).squeeze(-1).astype(jnp.float32)
         log_ratio = log_q_zt - log_p_zt
         is_div = jnp.exp(log_ratio) - log_ratio - 1
 
-        kl_div = optax.losses.kl_divergence_with_log_targets(log_p_t, log_q_t, axis=-1)
+        kl_div = optax.losses.kl_divergence_with_log_targets(log_p_t, log_q_t, axis=-1).astype(jnp.float32)
 
         loss = loss_weights * (kl_div + self.beta_is_div * is_div)
 
