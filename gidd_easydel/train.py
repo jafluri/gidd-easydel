@@ -88,7 +88,7 @@ def wsd_lr_schedule(total_steps: int, base_lr: float, warmup_steps: int = 0, coo
 
 def get_latest_checkpoint(checkpoint_dir):
     save_path = ePath(checkpoint_dir)
-    checkpoint_files = list(save_path.glob("run-*/config.json"))
+    checkpoint_files = list(save_path.glob("run-*"))
     assert len(checkpoint_files) > 0, f"No checkpoints found in {checkpoint_dir}"
 
     def get_mtime(path):
@@ -99,7 +99,7 @@ def get_latest_checkpoint(checkpoint_dir):
         
     checkpoint_files.sort(key=get_mtime)
 
-    latest_ckpt = checkpoint_files[-1].parent
+    latest_ckpt = checkpoint_files[-1]
     step = int(latest_ckpt.stem().split("-")[-1])
 
     return latest_ckpt, step
@@ -176,6 +176,7 @@ def train(args):
     if args.resume_wandb_id:
         run = wandb.Api().run(f"EasyDeL-diffusiontrainer-Gidd/{args.resume_wandb_id}")
         args.save_directory = run.config["save_directory"]
+        logger.info(f"Resuming W&B run {args.resume_wandb_id} with save directory {args.save_directory}")
         try:
             checkpoint_path, start_step = get_latest_checkpoint(os.path.join(args.save_directory, "gidd"))
             logger.info(f"Resuming from checkpoint: {checkpoint_path}")
