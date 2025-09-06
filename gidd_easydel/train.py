@@ -413,7 +413,7 @@ def train(args):
                 storage_options=storage_options,
                 ignore_metadata_file=True,
             )
-            for bucket_path in tqdm.tqdm(bucket_paths, desc="Loading dataset")
+            for bucket_path in tqdm.tqdm(bucket_paths, desc="Loading dataset", disable=not jax.process_index() == 0)
         ]
 
         sampler = ShuffledBucketSampler(ddfs, random_state=random.randint(0, 2**32 - 1))
