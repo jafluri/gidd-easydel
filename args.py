@@ -62,7 +62,7 @@ def parse_args(
     # checkpointing
     parser.add_argument("--save_directory", type=str, default=default_save_directory, help="Directory to save model checkpoints.")
     parser.add_argument("--save_steps", type=int, default=1000, help="Number of steps between saving model checkpoints.")
-    parser.add_argument("--save_total_limit", type=int, default=1, help="Maximum number of checkpoints to keep. (default: keep only most recent)")
+    parser.add_argument("--save_total_limit", type=int, default=3, help="Maximum number of checkpoints to keep. (default: keep only most recent)")
     # wandb
     parser.add_argument("--wandb_entity", type=str, default=default_wandb_entity, help="Weights & Biases entity for logging.")
     parser.add_argument("--wandb_name", type=str, default=None, help="Weights & Biases run name.")
