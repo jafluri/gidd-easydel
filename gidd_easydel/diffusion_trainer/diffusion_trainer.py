@@ -48,6 +48,9 @@ class DiffusionTrainer(Trainer):
     ):
         assert isinstance(arguments, DiffusionConfig), "passed argument must be a `DiffusionConfig`."
         assert model is not None or model_state is not None, "You must pass a `model` to the DiffusionTrainer."
+        _model = model
+        if _model is None:
+            _model = model_state.model
 
         if seed is None:
             seed = random.randint(0, 2**31 - 1)
@@ -72,6 +75,7 @@ class DiffusionTrainer(Trainer):
             vocab_size=len(tokenizer),
             beta_is_div=arguments.beta_is_div,
             mask_token_id=tokenizer.mask_token_id,
+            partition_axis=_model.config.partition_axis,
         )
 
         if train_dataset is not None:
