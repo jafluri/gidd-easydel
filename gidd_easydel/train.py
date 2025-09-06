@@ -377,6 +377,7 @@ def train(args):
             args.data_files,
             engine="pyarrow",
             columns=["tokens"],
+            split_row_groups=False,
         )
         sampler = BasicSampler(ddf)
     elif args.sampler == "buffered":
@@ -384,13 +385,22 @@ def train(args):
             args.data_files,
             engine="pyarrow",
             columns=["tokens"],
+            split_row_groups=False,
         )
         sampler = BufferedPartitionSampler(ddf, K=128, random_state=random.randint(0, 2**32 - 1))
     elif args.sampler == "buckets":
         assert not args.data_files.endswith(".parquet")
+        bucket_paths = sorted(str(p) for p in ePath(args.data_files).glob("bucket=*"))
 
-        fs, _, _ = fsspec.get_fs_token_paths(args.data_files)
-        bucket_paths = sorted(fs.ls(args.data_files))
+        storage_options = None
+        if args.data_files.startswith("gs://"):
+            bucket_paths = ["simplecache::" + p for p in bucket_paths]
+            storage_options = {
+                "gcs": {"token": "cloud"},
+                "simplecache": {
+                    "cache_storage": "/dev/shm/fsspec-cache",
+                },
+            }
 
         print(f"Found {len(bucket_paths)} buckets in {args.data_files}")
 
@@ -400,7 +410,8 @@ def train(args):
                 engine="pyarrow",
                 columns=["tokens"],
                 split_row_groups=False,
-                filesystem=fs,
+                storage_options=storage_options,
+                ignore_metadata_file=True,
             )
             for bucket_path in tqdm.tqdm(bucket_paths, desc="Loading dataset")
         ]
