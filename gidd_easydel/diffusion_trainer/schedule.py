@@ -260,17 +260,17 @@ class MixingSchedule(MixingRate, MixingDistribution):
         marginal_probs = self.marginal_probs_from_ids(log_snr, input_ids, dtype=dtype)
         return safe_log(marginal_probs)
 
-    def sample_marginals(self, key: chex.PRNGKey, log_snr: chex.Array, labels: chex.Array) -> chex.Array:
+    def sample_marginals(self, key: chex.PRNGKey, log_snr: chex.Array, labels: chex.Array, mode: str | None = "high") -> chex.Array:
         log_probs = self.marginal_log_probs_from_ids(log_snr, labels)
-        return jax.random.categorical(key, log_probs, axis=-1, mode="high")
+        return jax.random.categorical(key, log_probs, axis=-1, mode=mode)
 
-    def sample_prior(self, key: chex.PRNGKey, shape: chex.Shape) -> chex.Array:
+    def sample_prior(self, key: chex.PRNGKey, shape: chex.Shape, mode: str | None = "high") -> chex.Array:
         if self.prior_distribution == Priors.MASKED:
             return jnp.full(shape, self.mask_token_id)
         elif self.prior_distribution == Priors.UNIFORM:
             return jax.random.randint(key, shape, 0, self.vocab_size)
         elif isinstance(self.prior_distribution, chex.Array):
-            return jax.random.choice(key, self.vocab_size, shape=shape, p=self.prior_distribution, mode="high")
+            return jax.random.choice(key, self.vocab_size, shape=shape, p=self.prior_distribution, mode=mode)
         else:
             raise ValueError(f"Unknown prior distribution: {self.prior_distribution}")
 
