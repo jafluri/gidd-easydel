@@ -32,7 +32,9 @@ WANDB_PROJECT = os.getenv("WANDB_PROJECT", None)
 num_slices = int(TPU_POD_COUNT)
 
 base_env = {
+    # "JAX_PLATFORMS": "tpu",
     "EASYDEL_PROFILING": os.getenv("EASYDEL_PROFILING", "0"),  # Enable EasyDeL profiling.
+    "EASYDEL_PROFILING_DIR": os.getenv("EASYDEL_PROFILING_DIR", f"gs://gidd-checkpoints_eu-west4/jax-trace"),  # Directory for EasyDeL profiling outputs.
     "EASYDEL_AUTO": os.getenv("EASYDEL_AUTO", "1"),  # Enables EasyDeL's automatic sharding configuration.
     "HF_TOKEN": os.getenv("HF_TOKEN_FOR_EASYDEL", ""),  # Hugging Face token.
     "HF_DATASETS_CACHE": "/dev/shm/huggingface-dataset",  # RAM-disk for dataset cache.
@@ -47,12 +49,13 @@ base_env = {
 }
 
 if not TPU_ZONE:
-    print("Warning: TPU_ZONE is not set. This is fine if you're not running on TPU or if the TPU has environment variables SAVE_DIRECTORY and DATA_FILES.")
-    SAVE_DIRECTORY = os.getenv("SAVE_DIRECTORY", "outputs/diffusion_trainer")
-    DATA_FILES = os.getenv("DATA_FILES", None)
-else:
-    SAVE_DIRECTORY = os.getenv("SAVE_DIRECTORY", f"gs://gidd-checkpoints_{TPU_ZONE[:-2]}")
-    DATA_FILES = os.getenv("DATA_FILES", f"gs://nemotron-cc_{TPU_ZONE[:-2]}")
+    logger.warning("TPU_ZONE is not set. This is fine if you're not running on TPU or if the TPU has environment variables SAVE_DIRECTORY and DATA_FILES.")
+
+SAVE_DIRECTORY = os.getenv("SAVE_DIRECTORY", f"gs://gidd-checkpoints_{TPU_ZONE[:-2]}")
+DATA_FILES = os.getenv("DATA_FILES", f"gs://nemotron-cc_{TPU_ZONE[:-2]}")
+
+logger.info(f"Using save directory: {SAVE_DIRECTORY}")
+logger.info(f"Using data files: {DATA_FILES}")
 
 
 from args import parse_args
@@ -117,7 +120,6 @@ def submit_to_slice(remote_fn, slice_info, slice_id, coord_ip, coord_port=PORT):
                 MEGASCALE_NUM_SLICES=str(num_slices),
                 MEGASCALE_PORT=str(coord_port),
                 MEGASCALE_SLICE_ID=str(slice_id),
-                JAX_PLATFORMS="tpu"
             )
         else:
             env = dict(base_env)
