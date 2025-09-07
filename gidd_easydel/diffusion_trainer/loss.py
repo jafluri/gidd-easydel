@@ -7,7 +7,7 @@ from jax.sharding import PartitionSpec
 from eformer.escale import PartitionAxis
 from eformer.escale.partition.constraints import with_sharding_constraint
 
-from .schedule import MixingSchedule
+from .schedule import MixingSchedule, safe_sigmoid
 
 
 
@@ -40,6 +40,8 @@ class GiddLoss(nn.Module):
         )
         print("logits_partition_spec:", self.logits_partition_spec)
         print("tokens_partition_spec:", self.tokens_partition_spec)
+
+        self.is_mask_only = self.mixing_schedule._distribution.shift <= -100.0
 
     # def _softmax(self, x, axis=-1):
     #     x = x.astype(jnp.float32)
@@ -75,37 +77,50 @@ class GiddLoss(nn.Module):
         log_snr = with_sharding_constraint(log_snr, self.tokens_partition_spec)
         labels_one_hot = with_sharding_constraint(jax.nn.one_hot(labels, self.vocab_size, dtype=logits.dtype), self.logits_partition_spec)
 
-        dtype = self.dtype or logits.dtype
-        elbo_weights, aux = self.mixing_schedule.get_elbo_weights(log_snr, input_ids, labels, return_aux=True)
-        loss_weights = aux["loss_weights"].clip(0, 1e3)
-        elbo_weights = with_sharding_constraint(elbo_weights, self.tokens_partition_spec)
-        loss_weights = with_sharding_constraint(loss_weights, self.tokens_partition_spec)
-        
-        logits = logits.at[..., self.mask_token_id].set(-1e6)  # Mask out the logits for the mask token.
-        x_hat = nn.softmax(logits.astype(jnp.float32), axis=-1).astype(dtype)
+        if self.is_mask_only:
+            loss = -jnp.sum(labels_one_hot * jax.nn.log_softmax(logits.astype(jnp.float32), axis=-1), axis=-1)
+            alpha_1m = safe_sigmoid(-log_snr)
+            elbo_weights = 1.0 / alpha_1m  # assuming linear schedule
+            elbo_weights = elbo_weights.clip(0, 1e6)
+            if return_aux:
+                elbo = elbo_weights * loss
+                return loss, {
+                    "elbo": elbo,
+                }
+            return loss
+        else:
+            dtype = self.dtype or logits.dtype
+            elbo_weights, aux = self.mixing_schedule.get_elbo_weights(log_snr, input_ids, labels, return_aux=True)
+            elbo_weights = elbo_weights.clip(0, 1e6)
+            loss_weights = aux["loss_weights"].clip(0, 1e3)
+            elbo_weights = with_sharding_constraint(elbo_weights, self.tokens_partition_spec)
+            loss_weights = with_sharding_constraint(loss_weights, self.tokens_partition_spec)
+            
+            logits = logits.at[..., self.mask_token_id].set(-1e6)  # Mask out the logits for the mask token.
+            x_hat = nn.softmax(logits.astype(jnp.float32), axis=-1).astype(dtype)
 
-        log_p_t = self.mixing_schedule.marginal_log_probs(log_snr, x_hat)
-        log_q_t = self.mixing_schedule.marginal_log_probs(log_snr, labels_one_hot)
-        log_p_t = with_sharding_constraint(log_p_t, self.logits_partition_spec)
-        log_q_t = with_sharding_constraint(log_q_t, self.logits_partition_spec)
+            log_p_t = self.mixing_schedule.marginal_log_probs(log_snr, x_hat)
+            log_q_t = self.mixing_schedule.marginal_log_probs(log_snr, labels_one_hot)
+            log_p_t = with_sharding_constraint(log_p_t, self.logits_partition_spec)
+            log_q_t = with_sharding_constraint(log_q_t, self.logits_partition_spec)
 
-        log_p_zt = jnp.take_along_axis(log_p_t, input_ids[..., None], axis=-1).squeeze(-1).astype(jnp.float32)
-        log_q_zt = jnp.take_along_axis(log_q_t, input_ids[..., None], axis=-1).squeeze(-1).astype(jnp.float32)
-        log_p_zt = with_sharding_constraint(log_p_zt, self.tokens_partition_spec)
-        log_q_zt = with_sharding_constraint(log_q_zt, self.tokens_partition_spec)
-        log_ratio = log_q_zt - log_p_zt
-        is_div = jnp.exp(log_ratio) - log_ratio - 1
+            log_p_zt = jnp.take_along_axis(log_p_t, input_ids[..., None], axis=-1).squeeze(-1).astype(jnp.float32)
+            log_q_zt = jnp.take_along_axis(log_q_t, input_ids[..., None], axis=-1).squeeze(-1).astype(jnp.float32)
+            log_p_zt = with_sharding_constraint(log_p_zt, self.tokens_partition_spec)
+            log_q_zt = with_sharding_constraint(log_q_zt, self.tokens_partition_spec)
+            log_ratio = log_q_zt - log_p_zt
+            is_div = jnp.exp(log_ratio) - log_ratio - 1
 
-        kl_div = optax.losses.kl_divergence_with_log_targets(log_p_t, log_q_t, axis=-1).astype(jnp.float32)
-        kl_div = with_sharding_constraint(kl_div, self.tokens_partition_spec)
+            kl_div = optax.losses.kl_divergence_with_log_targets(log_p_t, log_q_t, axis=-1).astype(jnp.float32)
+            kl_div = with_sharding_constraint(kl_div, self.tokens_partition_spec)
 
-        loss = loss_weights * (kl_div + self.beta_is_div * is_div)
+            loss = loss_weights * kl_div + self.beta_is_div * loss_weights * is_div
 
-        if return_aux:
-            elbo = elbo_weights.clip(0, 1e6) * (kl_div + is_div)
-            return loss, {
-                "elbo": elbo,
-                "kl_loss": loss_weights * kl_div,
-                "is_loss": loss_weights * is_div,
-            }
-        return loss
+            if return_aux:
+                elbo = elbo_weights * kl_div + elbo_weights * is_div
+                return loss, {
+                    "elbo": elbo,
+                    "kl_loss": loss_weights * kl_div,
+                    "is_loss": loss_weights * is_div,
+                }
+            return loss
