@@ -261,8 +261,23 @@ class MixingSchedule(MixingRate, MixingDistribution):
         return safe_log(marginal_probs)
 
     def sample_marginals(self, key: chex.PRNGKey, log_snr: chex.Array, labels: chex.Array, mode: str | None = "high") -> chex.Array:
-        log_probs = self.marginal_log_probs_from_ids(log_snr, labels)
-        return jax.random.categorical(key, log_probs, axis=-1, mode=mode)
+        assert log_snr.shape == labels.shape, "log_snr and labels must have the same shape."
+        batch_shape = log_snr.shape
+
+        flat_log_snr = log_snr.reshape(-1)
+        flat_labels = labels.reshape(-1)
+        flat_keys = jax.random.split(key, flat_log_snr.shape[0])
+
+        def _sample_single(inputs):
+            key, scalar_log_snr, token_id = inputs
+            alpha = self.alpha_from_log_snr(scalar_log_snr.astype(jnp.float32))
+            probs = (1 - alpha) * self.pi_lambda_from_ids(scalar_log_snr, token_id)
+            probs = probs.at[token_id].add(alpha)
+            log_probs = safe_log(probs)
+            return jax.random.categorical(key, log_probs, axis=-1, mode=mode)
+
+        flat_samples = jax.lax.map(_sample_single, (flat_keys, flat_log_snr, flat_labels), batch_size=128)
+        return flat_samples.reshape(batch_shape)
 
     def sample_prior(self, key: chex.PRNGKey, shape: chex.Shape, mode: str | None = "high") -> chex.Array:
         if self.prior_distribution == Priors.MASKED:
@@ -274,17 +289,26 @@ class MixingSchedule(MixingRate, MixingDistribution):
         else:
             raise ValueError(f"Unknown prior distribution: {self.prior_distribution}")
 
-
     def get_loss_weights(self, log_snr: chex.Array, input_ids: chex.Array, labels: chex.Array) -> chex.Array:
-        pi = self.pi_lambda_from_ids(log_snr, labels)
-        pi_prime = self.pi_lambda_prime_from_ids(log_snr, labels)
-        pi_at_z = jnp.take_along_axis(pi, input_ids[..., None], axis=-1).squeeze(-1).astype(jnp.float32)  # gather
-        pi_prime_at_z = jnp.take_along_axis(pi_prime, input_ids[..., None], axis=-1).squeeze(-1).astype(jnp.float32)  # gather
+        assert log_snr.shape == input_ids.shape == labels.shape, "log_snr, input_ids, and labels must have the same shape."
+        batch_shape = log_snr.shape
+        flat_log_snr = log_snr.reshape(-1)
+        flat_input_ids = input_ids.reshape(-1)
+        flat_labels = labels.reshape(-1)
 
-        snr = jnp.exp(log_snr)
-        delta_zx = (input_ids == labels).astype(log_snr.dtype)
-        loss_weights = (pi_at_z - pi_prime_at_z) / (pi_at_z + snr*delta_zx)
-        return loss_weights.astype(log_snr.dtype)
+        def _loss_weights_single(inputs):
+            scalar_log_snr, input_id, label = inputs
+            pi = self.pi_lambda_from_ids(scalar_log_snr, label)
+            pi_prime = self.pi_lambda_prime_from_ids(scalar_log_snr, label)
+            pi_at_z = pi[input_id].astype(jnp.float32)
+            pi_prime_at_z = pi_prime[input_id].astype(jnp.float32)
+            snr = jnp.exp(scalar_log_snr.astype(jnp.float32))
+            delta_zx = (input_id == label).astype(jnp.float32)
+            loss_weight = (pi_at_z - pi_prime_at_z) / (pi_at_z + snr * delta_zx)
+            return loss_weight
+
+        flat_loss_weights = jax.lax.map(_loss_weights_single, (flat_log_snr, flat_input_ids, flat_labels), batch_size=128)
+        return flat_loss_weights.reshape(batch_shape)
 
     def get_elbo_weights(
         self,
@@ -305,15 +329,14 @@ class MixingSchedule(MixingRate, MixingDistribution):
         Returns:
             chex.Array or tuple: The ELBO weights, optionally with auxiliary information.
         """
-        dtype = log_snr.dtype
         log_snr = log_snr.astype(jnp.float32)
         loss_weights = self.get_loss_weights(log_snr, input_ids, labels)
         p_log_snr = self.p_log_snr(log_snr)
-        elbo_weights = (loss_weights / p_log_snr.clip(1e-12)).astype(dtype)
+        elbo_weights = (loss_weights / p_log_snr.clip(1e-12))
         if return_aux:
             return elbo_weights, {
-                "p_log_snr": p_log_snr.astype(dtype),
-                "loss_weights": loss_weights.astype(dtype),
+                "p_log_snr": p_log_snr,
+                "loss_weights": loss_weights,
             }
         return elbo_weights
 
