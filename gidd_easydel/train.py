@@ -471,4 +471,3 @@ def train(args):
     jax.experimental.multihost_utils.sync_global_devices("gidd_easydel:before_training")
     logger.info("Starting training...")
     trainer.train()
-    # jax.experimental.multihost_utils.sync_global_devices("gidd_easydel:after_training")
