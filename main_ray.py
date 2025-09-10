@@ -36,6 +36,7 @@ base_env = {
     "EASYDEL_PROFILING": os.getenv("EASYDEL_PROFILING", "0"),  # Enable EasyDeL profiling.
     "EASYDEL_PROFILING_DIR": os.getenv("EASYDEL_PROFILING_DIR", f"gs://gidd-checkpoints_europe-west4/jax-trace"),  # Directory for EasyDeL profiling outputs.
     "EASYDEL_AUTO": os.getenv("EASYDEL_AUTO", "1"),  # Enables EasyDeL's automatic sharding configuration.
+    "LIBTPU_INIT_ARGS": "--xla_tpu_scoped_vmem_limit_kib=98304",
     "HF_TOKEN": os.getenv("HF_TOKEN_FOR_EASYDEL", ""),  # Hugging Face token.
     "HF_DATASETS_CACHE": "/dev/shm/huggingface-dataset",  # RAM-disk for dataset cache.
     "HF_HOME": "/dev/shm/huggingface",  # RAM-disk for model cache.
@@ -104,6 +105,8 @@ def submit_to_host(remote_fn, host_info, env):
         scheduling_strategy=NodeAffinitySchedulingStrategy(node_id=host_info["node_id"], soft=False),
         resources={"TPU": host_info["num_tpus"]},
         runtime_env={"env_vars": env},
+        max_retries=0,
+        retry_exceptions=False,
     ).remote()
     return call
 
@@ -257,10 +260,12 @@ def run_on_multislice_resumable(
 
             logger.info("Attempting to resubmit...")
         finally:
+            # let's just chill for a bit first
+            time.sleep(10)
             logger.info("Canceling remaining tasks...")
             for call in calls:
                 try:
-                    ray.cancel(call)
+                    ray.cancel(call, recursive=True)
                 except Exception as e:
                     logger.warning(f"Failed to cancel call {call}: {e}", exc_info=e)
             logger.info("Releasing placement groups...")
@@ -269,8 +274,8 @@ def run_on_multislice_resumable(
                     remove_placement_group(pg)
                 except Exception as e:
                     logger.warning(f"Failed to remove placement group {pg}: {e}", exc_info=e)
-            # let's just chill for a bit
-            time.sleep(5)
+            # and chill again
+            time.sleep(10)
 
     if done:
         logger.info("All done!")
