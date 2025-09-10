@@ -235,6 +235,15 @@ class HybridMixingDistribution(MixingDistribution):
 
     def pi_lambda_prime_from_ids(self, log_snr: chex.Array, _: chex.Array) -> chex.Array:
         return self.pi_lambda_prime(log_snr, None)
+    
+    def sample_marginals(self, key: chex.PRNGKey, alpha: chex.Array, log_snr: chex.Array, labels: chex.Array, mode: str | None = "high") -> chex.Array:
+        pi_u_at_logsnr = safe_sigmoid(self.scale * log_snr + self.shift)
+        key, k1, k2 = jax.random.split(key, 3)
+        is_noise_free = jax.random.bernoulli(k1, p=alpha, shape=labels.shape)
+        is_uniform = jax.random.bernoulli(k2, p=pi_u_at_logsnr, shape=labels.shape)
+        uniform_ids = jax.random.randint(key, labels.shape, 0, self.vocab_size)
+        noise_ids = jnp.where(is_uniform, uniform_ids, self.mask_token_id)
+        return jnp.where(is_noise_free, labels, noise_ids)
 
 
 class MixingSchedule(MixingRate, MixingDistribution):
@@ -260,24 +269,28 @@ class MixingSchedule(MixingRate, MixingDistribution):
         marginal_probs = self.marginal_probs_from_ids(log_snr, input_ids, dtype=dtype)
         return safe_log(marginal_probs)
 
+    # def sample_marginals(self, key: chex.PRNGKey, log_snr: chex.Array, labels: chex.Array, mode: str | None = "high") -> chex.Array:
+    #     assert log_snr.shape == labels.shape, "log_snr and labels must have the same shape."
+    #     batch_shape = log_snr.shape
+
+    #     flat_log_snr = log_snr.reshape(-1)
+    #     flat_labels = labels.reshape(-1)
+    #     flat_keys = jax.random.split(key, flat_log_snr.shape[0])
+
+    #     def _sample_single(inputs):
+    #         key, scalar_log_snr, token_id = inputs
+    #         alpha = self.alpha_from_log_snr(scalar_log_snr.astype(jnp.float32))
+    #         probs = (1 - alpha) * self.pi_lambda_from_ids(scalar_log_snr, token_id)
+    #         probs = probs.at[token_id].add(alpha)
+    #         log_probs = safe_log(probs)
+    #         return jax.random.categorical(key, log_probs, axis=-1, mode=mode)
+
+    #     flat_samples = jax.lax.map(_sample_single, (flat_keys, flat_log_snr, flat_labels), batch_size=16384)
+    #     return flat_samples.reshape(batch_shape)
+
     def sample_marginals(self, key: chex.PRNGKey, log_snr: chex.Array, labels: chex.Array, mode: str | None = "high") -> chex.Array:
-        assert log_snr.shape == labels.shape, "log_snr and labels must have the same shape."
-        batch_shape = log_snr.shape
-
-        flat_log_snr = log_snr.reshape(-1)
-        flat_labels = labels.reshape(-1)
-        flat_keys = jax.random.split(key, flat_log_snr.shape[0])
-
-        def _sample_single(inputs):
-            key, scalar_log_snr, token_id = inputs
-            alpha = self.alpha_from_log_snr(scalar_log_snr.astype(jnp.float32))
-            probs = (1 - alpha) * self.pi_lambda_from_ids(scalar_log_snr, token_id)
-            probs = probs.at[token_id].add(alpha)
-            log_probs = safe_log(probs)
-            return jax.random.categorical(key, log_probs, axis=-1, mode=mode)
-
-        flat_samples = jax.lax.map(_sample_single, (flat_keys, flat_log_snr, flat_labels), batch_size=128)
-        return flat_samples.reshape(batch_shape)
+        alpha = self.alpha_from_log_snr(log_snr)
+        return self._distribution.sample_marginals(key, alpha, log_snr, labels)
 
     def sample_prior(self, key: chex.PRNGKey, shape: chex.Shape, mode: str | None = "high") -> chex.Array:
         if self.prior_distribution == Priors.MASKED:
@@ -289,26 +302,37 @@ class MixingSchedule(MixingRate, MixingDistribution):
         else:
             raise ValueError(f"Unknown prior distribution: {self.prior_distribution}")
 
+    # def get_loss_weights(self, log_snr: chex.Array, input_ids: chex.Array, labels: chex.Array) -> chex.Array:
+    #     assert log_snr.shape == input_ids.shape == labels.shape, "log_snr, input_ids, and labels must have the same shape."
+    #     batch_shape = log_snr.shape
+    #     flat_log_snr = log_snr.reshape(-1)
+    #     flat_input_ids = input_ids.reshape(-1)
+    #     flat_labels = labels.reshape(-1)
+
+    #     def _loss_weights_single(inputs):
+    #         scalar_log_snr, input_id, label = inputs
+    #         pi = self.pi_lambda_from_ids(scalar_log_snr, label)
+    #         pi_prime = self.pi_lambda_prime_from_ids(scalar_log_snr, label)
+    #         pi_at_z = pi[input_id].astype(jnp.float32)
+    #         pi_prime_at_z = pi_prime[input_id].astype(jnp.float32)
+    #         snr = jnp.exp(scalar_log_snr.astype(jnp.float32))
+    #         delta_zx = (input_id == label).astype(jnp.float32)
+    #         loss_weight = (pi_at_z - pi_prime_at_z) / (pi_at_z + snr * delta_zx)
+    #         return loss_weight
+
+    #     flat_loss_weights = jax.lax.map(_loss_weights_single, (flat_log_snr, flat_input_ids, flat_labels), batch_size=16384)
+    #     return flat_loss_weights.reshape(batch_shape)
+
     def get_loss_weights(self, log_snr: chex.Array, input_ids: chex.Array, labels: chex.Array) -> chex.Array:
-        assert log_snr.shape == input_ids.shape == labels.shape, "log_snr, input_ids, and labels must have the same shape."
-        batch_shape = log_snr.shape
-        flat_log_snr = log_snr.reshape(-1)
-        flat_input_ids = input_ids.reshape(-1)
-        flat_labels = labels.reshape(-1)
+        pi = self.pi_lambda_from_ids(log_snr, labels)
+        pi_prime = self.pi_lambda_prime_from_ids(log_snr, labels)
+        pi_at_z = jnp.take_along_axis(pi, input_ids[..., None], axis=-1).squeeze(-1).astype(jnp.float32)  # gather
+        pi_prime_at_z = jnp.take_along_axis(pi_prime, input_ids[..., None], axis=-1).squeeze(-1).astype(jnp.float32)  # gather
 
-        def _loss_weights_single(inputs):
-            scalar_log_snr, input_id, label = inputs
-            pi = self.pi_lambda_from_ids(scalar_log_snr, label)
-            pi_prime = self.pi_lambda_prime_from_ids(scalar_log_snr, label)
-            pi_at_z = pi[input_id].astype(jnp.float32)
-            pi_prime_at_z = pi_prime[input_id].astype(jnp.float32)
-            snr = jnp.exp(scalar_log_snr.astype(jnp.float32))
-            delta_zx = (input_id == label).astype(jnp.float32)
-            loss_weight = (pi_at_z - pi_prime_at_z) / (pi_at_z + snr * delta_zx)
-            return loss_weight
-
-        flat_loss_weights = jax.lax.map(_loss_weights_single, (flat_log_snr, flat_input_ids, flat_labels), batch_size=128)
-        return flat_loss_weights.reshape(batch_shape)
+        snr = jnp.exp(log_snr)
+        delta_zx = (input_ids == labels).astype(log_snr.dtype)
+        loss_weights = (pi_at_z - pi_prime_at_z) / (pi_at_z + snr*delta_zx)
+        return loss_weights.astype(log_snr.dtype)
 
     def get_elbo_weights(
         self,
