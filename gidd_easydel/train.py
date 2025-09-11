@@ -347,7 +347,8 @@ def train(args):
         optimizer=ed.EasyDeLOptimizers.ADAMW,
         scheduler=ed.EasyDeLSchedulers.COSINE,
         warmup_steps=args.warmup_steps,
-        weight_decay=0.02,
+        weight_decay=0.0,
+        loss_config=ed.LossConfig(break_on_nan=args.break_on_nan),
         save_directory=args.save_directory,
         save_steps=args.save_steps,
         save_total_limit=(
