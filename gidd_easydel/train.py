@@ -1,7 +1,6 @@
 import easydel as ed
 
 import os
-import fsspec
 import random
 import typing as tp
 from copy import deepcopy
@@ -19,7 +18,7 @@ from jax import numpy as jnp
 from transformers import AutoTokenizer
 from datasets import IterableDataset
 
-from .sampler import BufferedPartitionSampler, ShuffledBucketSampler, BasicSampler
+from .data import generate_rows_from_buckets
 from .diffusion_trainer import DiffusionTrainer, DiffusionConfig
 from .model import GiddForDiffusionLM, GiddConfig
 from .optimizer import lapropw
@@ -187,8 +186,8 @@ def train(args):
     else:
         args.save_directory = os.path.join(
             args.save_directory,
-            args.wandb_tags,
             datetime.now().strftime("%Y-%m-%d"),
+            args.wandb_tags,
             args.wandb_name,
             datetime.now().strftime("%H-%M-%S"),
         )
@@ -371,59 +370,30 @@ def train(args):
 
     # jax.experimental.multihost_utils.sync_global_devices("gidd_easydel:before_load_dataset")
 
-    if args.sampler == "simple":
-        ddf = dd.read_parquet(
-            args.data_files,
-            engine="pyarrow",
-            columns=["tokens"],
-            split_row_groups=False,
-        )
-        sampler = BasicSampler(ddf)
-    elif args.sampler == "buffered":
-        ddf = dd.read_parquet(
-            args.data_files,
-            engine="pyarrow",
-            columns=["tokens"],
-            split_row_groups=False,
-        )
-        sampler = BufferedPartitionSampler(ddf, K=128, random_state=random.randint(0, 2**32 - 1))
-    elif args.sampler == "buckets":
-        assert not args.data_files.endswith(".parquet")
-        bucket_paths = sorted(str(p) for p in ePath(args.data_files).glob("bucket=*"))
+    bucket_paths = sorted(str(p) for p in ePath(args.data_files).glob("bucket=*"))
+    bucket_files = [
+        sorted(str(p) for p in ePath(bp).glob("*.parquet"))
+        for bp in bucket_paths
+    ]
 
-        storage_options = None
-        if args.data_files.startswith("gs://"):
-            bucket_paths = ["simplecache::" + p for p in bucket_paths]
-            storage_options = {
-                "gcs": {"token": "cloud"},
-                "simplecache": {
-                    "cache_storage": "/dev/shm/fsspec-cache",
-                },
-            }
+    storage_options = None
+    if args.data_files.startswith("gs://"):
+        bucket_paths = [["simplecache::" + p for p in ps] for ps in bucket_files]
+        storage_options = {
+            "gcs": {"token": "cloud"},
+            "simplecache": {
+                "cache_storage": "/dev/shm/fsspec-cache",
+            },
+        }
 
-        print(f"Found {len(bucket_paths)} buckets in {args.data_files}")
+    print(f"Found {len(bucket_paths)} buckets and {len(bucket_files)} files in {args.data_files}")
 
-        ddfs = [
-            dd.read_parquet(
-                bucket_path.rstrip("/") + "/**/*.parquet",
-                engine="pyarrow",
-                columns=["tokens"],
-                split_row_groups=False,
-                storage_options=storage_options,
-                ignore_metadata_file=True,
-            )
-            for bucket_path in tqdm.tqdm(bucket_paths, desc="Loading dataset", disable=not jax.process_index() == 0)
-        ]
-
-        sampler = ShuffledBucketSampler(ddfs, random_state=random.randint(0, 2**32 - 1))
-    else:
-        raise ValueError(f"Unknown sampler: {args.sampler}")
-
-    def generate_dataset():
-        for x in sampler:
-            yield x
-
-    train_dataset = IterableDataset.from_generator(generate_dataset)
+    train_dataset = IterableDataset.from_generator(generate_rows_from_buckets, gen_kwargs=dict(
+        bucket_files=bucket_files,
+        storage_options=storage_options,
+        seed=random.randint(0, 2**32 - 1),
+        preload_factor=1,
+    ))
 
     jax.experimental.multihost_utils.sync_global_devices("gidd_easydel:after_load_dataset")
     logger.info("Loaded dataset on all hosts")

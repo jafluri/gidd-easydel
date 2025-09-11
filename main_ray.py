@@ -1,8 +1,10 @@
+import multiprocessing as mp
 import time
 import os
 import json
 import uuid
 import logging
+from concurrent.futures import ProcessPoolExecutor
 
 import ray
 from pprint import pprint
@@ -33,7 +35,7 @@ num_slices = int(TPU_POD_COUNT)
 
 base_env = {
     # "JAX_PLATFORMS": "tpu",
-    "EASYDEL_PROFILING": os.getenv("EASYDEL_PROFILING", "0"),  # Enable EasyDeL profiling.
+    "EASYDEL_PROFILING": os.getenv("EASYDEL_PROFILING", "1"),  # Enable EasyDeL profiling.
     "EASYDEL_PROFILING_DIR": os.getenv("EASYDEL_PROFILING_DIR", f"gs://gidd-checkpoints_europe-west4/jax-trace"),  # Directory for EasyDeL profiling outputs.
     "EASYDEL_AUTO": os.getenv("EASYDEL_AUTO", "1"),  # Enables EasyDeL's automatic sharding configuration.
     "LIBTPU_INIT_ARGS": "--xla_tpu_scoped_vmem_limit_kib=98304",
@@ -71,22 +73,25 @@ def main():
     import easydel as ed
     from gidd_easydel.train import train
 
-    # try to resume run
-    import wandb
-    runs = wandb.Api(api_key=WANDB_API_KEY).runs(
-        path=f"{WANDB_ENTITY}/{WANDB_PROJECT}",
-        filters={"config.gidd_run_id": GIDD_RUN_ID},
-        order="+created_at",
-    )
-    if len(runs) > 1:
-        logger.warning(f"Found multiple runs with gidd_run_id '{GIDD_RUN_ID}'. Resuming from newest one.")
-        runs = runs[:1]
+    if ARGS.resume_wandb_id is not None:
+        logger.info(f"Resuming from provided W&B run ID: {ARGS.resume_wandb_id}")
+    else:
+        # try to resume run
+        import wandb
+        runs = wandb.Api(api_key=WANDB_API_KEY).runs(
+            path=f"{WANDB_ENTITY}/{WANDB_PROJECT}",
+            filters={"config.gidd_run_id": GIDD_RUN_ID},
+            order="+created_at",
+        )
+        if len(runs) > 1:
+            logger.warning(f"Found multiple runs with gidd_run_id '{GIDD_RUN_ID}'. Resuming from newest one.")
+            runs = runs[:1]
 
-    if len(runs) == 1:
-        run = runs[0]
-        logger.info(f"Resuming from W&B run: {run.id}")
-        ARGS.resume_wandb_id = run.id
-        assert ARGS.resume_wandb_id == run.id, "what???"
+        if len(runs) == 1:
+            run = runs[0]
+            logger.info(f"Resuming from W&B run: {run.id}")
+            ARGS.resume_wandb_id = run.id
+            assert ARGS.resume_wandb_id == run.id, "what???"
 
     try:
         pprint(ARGS)
@@ -282,9 +287,11 @@ def run_on_multislice_resumable(
     else:
         logger.error("Failed to complete multislice submission after retries.")
 
-
-run_on_multislice_resumable(
-    remote_fn=main,
-    tpu_type=TPU_VERSION,
-    num_slices=num_slices,
-)
+if __name__ == "__main__":
+    mp.freeze_support()
+    mp.set_start_method('forkserver', force=True)
+    run_on_multislice_resumable(
+        remote_fn=main,
+        tpu_type=TPU_VERSION,
+        num_slices=num_slices,
+    )
