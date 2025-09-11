@@ -7,7 +7,7 @@ from .schedule import (
     MixingSchedule,
     LinearMixingRate,
     HybridMixingDistribution,
-    GeneralMixingDistribution,
+    # GeneralMixingDistribution,
 )
 
 __all__ = [
@@ -19,5 +19,5 @@ __all__ = [
     "MixingSchedule",
     "LinearMixingRate",
     "HybridMixingDistribution",
-    "GeneralMixingDistribution",
+    # "GeneralMixingDistribution",
 ]
