@@ -331,7 +331,7 @@ class MixingSchedule(MixingRate, MixingDistribution):
 
         snr = jnp.exp(log_snr)
         delta_zx = (input_ids == labels).astype(log_snr.dtype)
-        loss_weights = (pi_at_z - pi_prime_at_z) / (pi_at_z + snr*delta_zx)
+        loss_weights = (pi_at_z - pi_prime_at_z) / (pi_at_z + snr*delta_zx).clip(1e-8)
         return loss_weights.astype(log_snr.dtype)
 
     def get_elbo_weights(
