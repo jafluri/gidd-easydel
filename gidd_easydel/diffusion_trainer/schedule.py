@@ -89,7 +89,7 @@ class MixingDistribution(nn.Module, ABC):
         return self._mask_token_id
 
     @abstractmethod
-    def pi_lambda(self, log_snr: chex.Array, probs: chex.Array) -> chex.Array:
+    def pi_lambda(self, log_snr: chex.Array) -> chex.Array:
         """
         Computes the mixing distribution at a given log_snr and token probabilities.
         Args:
@@ -98,29 +98,29 @@ class MixingDistribution(nn.Module, ABC):
         """
         raise NotImplementedError
 
-    def pi_lambda_from_ids(self, log_snr: chex.Array, input_ids: chex.Array) -> chex.Array:
+    def pi_lambda_at_ids(self, log_snr: chex.Array, input_ids: chex.Array) -> chex.Array:
         """
         Default implementation uses `one_hot` -> `probs_from_logits`.
         May be overridden by a more efficient implementation.
         """
-        probs = nn.one_hot(input_ids, self.vocab_size, dtype=log_snr.dtype)
-        return self.pi_lambda(log_snr, probs)
+        z_enc = nn.one_hot(input_ids, self.vocab_size, dtype=log_snr.dtype)
+        return (z_enc * self.pi_lambda(log_snr)).sum(-1)
 
-    def pi_lambda_prime(self, log_snr: chex.Array, probs: chex.Array) -> chex.Array:
+    def pi_lambda_prime(self, log_snr: chex.Array) -> chex.Array:
         """
         Default implementation computes the partial (element-wise) derivative
         w.r.t. log_snr using JAX autograd.
         """
-        pi_prime = jax.vmap(jax.jacobian(self.pi_lambda))(log_snr.reshape(-1), probs.reshape(-1, probs.shape[-1]))
+        pi_prime = jax.vmap(jax.jacobian(self.pi_lambda))(log_snr.reshape(-1))
         return pi_prime.reshape(log_snr.shape + (-1,))
 
-    def pi_lambda_prime_from_ids(self, log_snr: chex.Array, input_ids: chex.Array) -> chex.Array:
+    def pi_lambda_prime_at_ids(self, log_snr: chex.Array, input_ids: chex.Array) -> chex.Array:
         """
         Default implementation uses `one_hot` -> `probs_from_logits`.
         May be overridden by a more efficient implementation.
         """
-        probs = nn.one_hot(input_ids, self.vocab_size, dtype=log_snr.dtype)
-        return self.pi_lambda_prime(log_snr, probs)
+        z_enc = nn.one_hot(input_ids, self.vocab_size, dtype=log_snr.dtype)
+        return (z_enc * self.pi_lambda_prime(log_snr)).sum(-1)
 
 
 class LinearMixingRate(MixingRate):
@@ -154,46 +154,46 @@ class LinearMixingRate(MixingRate):
         return 1 - alpha
 
 
-class GeneralMixingDistribution(MixingDistribution):
-    def __init__(
-        self,
-        *,
-        vocab_size: int = None,
-        prior_distribution: Priors | chex.Array = Priors.MASKED,
-        mask_token_id: int | None = None,
-        pi_lambda: tp.Callable[[chex.Array, chex.Array], chex.Array] | None = None,
-        pi_lambda_from_ids: tp.Callable[[chex.Array, chex.Array], chex.Array] | None = None,
-        pi_lambda_prime: tp.Callable[[chex.Array, chex.Array], chex.Array] | None = None,
-        _pi_lambda_prime_from_ids: tp.Callable[[chex.Array, chex.Array], chex.Array] | None = None,
-    ):
-        assert pi_lambda is not None, "pi_lambda function must be provided for GeneralMixingDistribution."
-        super().__init__(
-            vocab_size=vocab_size,
-            prior_distribution=prior_distribution,
-            mask_token_id=mask_token_id,
-        )
-        self._pi_lambda = pi_lambda
-        self._pi_lambda_from_ids = pi_lambda_from_ids
-        self._pi_lambda_prime = pi_lambda_prime
-        self._pi_lambda_prime_from_ids = _pi_lambda_prime_from_ids
+# class GeneralMixingDistribution(MixingDistribution):
+#     def __init__(
+#         self,
+#         *,
+#         vocab_size: int = None,
+#         prior_distribution: Priors | chex.Array = Priors.MASKED,
+#         mask_token_id: int | None = None,
+#         pi_lambda: tp.Callable[[chex.Array, chex.Array], chex.Array] | None = None,
+#         pi_lambda_at_ids: tp.Callable[[chex.Array, chex.Array], chex.Array] | None = None,
+#         pi_lambda_prime: tp.Callable[[chex.Array, chex.Array], chex.Array] | None = None,
+#         _pi_lambda_prime_at_ids: tp.Callable[[chex.Array, chex.Array], chex.Array] | None = None,
+#     ):
+#         assert pi_lambda is not None, "pi_lambda function must be provided for GeneralMixingDistribution."
+#         super().__init__(
+#             vocab_size=vocab_size,
+#             prior_distribution=prior_distribution,
+#             mask_token_id=mask_token_id,
+#         )
+#         self._pi_lambda = pi_lambda
+#         self._pi_lambda_at_ids = pi_lambda_at_ids
+#         self._pi_lambda_prime = pi_lambda_prime
+#         self._pi_lambda_prime_at_ids = _pi_lambda_prime_at_ids
 
-    def pi_lambda(self, log_snr: chex.Array, probs: chex.Array) -> chex.Array:
-        return self._pi_lambda(log_snr, probs)
+#     def pi_lambda(self, log_snr: chex.Array, probs: chex.Array) -> chex.Array:
+#         return self._pi_lambda(log_snr, probs)
 
-    def pi_lambda_from_ids(self, log_snr: chex.Array, input_ids: chex.Array) -> chex.Array:
-        if self._pi_lambda_from_ids is None:
-            return super().pi_lambda_from_ids(log_snr, input_ids)
-        return self._pi_lambda_from_ids(log_snr, input_ids)
+#     def pi_lambda_at_ids(self, log_snr: chex.Array, input_ids: chex.Array) -> chex.Array:
+#         if self._pi_lambda_at_ids is None:
+#             return super().pi_lambda_at_ids(log_snr, input_ids)
+#         return self._pi_lambda_at_ids(log_snr, input_ids)
 
-    def pi_lambda_prime(self, log_snr: chex.Array, probs: chex.Array) -> chex.Array:
-        if self._pi_lambda_prime is None:
-            return super().pi_lambda_prime(log_snr, probs)
-        return self._pi_lambda_prime(log_snr, probs)
+#     def pi_lambda_prime(self, log_snr: chex.Array, probs: chex.Array) -> chex.Array:
+#         if self._pi_lambda_prime is None:
+#             return super().pi_lambda_prime(log_snr, probs)
+#         return self._pi_lambda_prime(log_snr, probs)
 
-    def pi_lambda_prime_from_ids(self, log_snr: chex.Array, input_ids: chex.Array) -> chex.Array:
-        if self._pi_lambda_prime is None:
-            return super().pi_lambda_prime_from_ids(log_snr, input_ids)
-        return self._pi_lambda_prime_from_ids(log_snr, input_ids)
+#     def pi_lambda_prime_at_ids(self, log_snr: chex.Array, input_ids: chex.Array) -> chex.Array:
+#         if self._pi_lambda_prime is None:
+#             return super().pi_lambda_prime_at_ids(log_snr, input_ids)
+#         return self._pi_lambda_prime_at_ids(log_snr, input_ids)
 
 
 class HybridMixingDistribution(MixingDistribution):
@@ -218,23 +218,29 @@ class HybridMixingDistribution(MixingDistribution):
         u = jnp.full((self.vocab_size,), 1.0 / (self.vocab_size - 1), dtype=dtype)
         self.uniform_vec = nn.Variable(u.at[self.mask_token_id].set(0.0))
 
-    def pi_lambda(self, log_snr: chex.Array, _: chex.Array | None) -> chex.Array:
+    def pi_lambda(self, log_snr: chex.Array) -> chex.Array:
         alpha = safe_sigmoid(self.scale * log_snr + self.shift)
         pi_at_logsnr = alpha[..., None].astype(self.dtype) * self.uniform_vec
         pi_at_logsnr = pi_at_logsnr.at[..., self.mask_token_id].add((1 - alpha).astype(self.dtype))
         return pi_at_logsnr
 
-    def pi_lambda_from_ids(self, log_snr: chex.Array, _: chex.Array) -> chex.Array:
-        return self.pi_lambda(log_snr, None)
+    def pi_lambda_at_ids(self, log_snr: chex.Array, input_ids: chex.Array) -> chex.Array:
+        alpha = safe_sigmoid(self.scale * log_snr.astype(jnp.float32) + self.shift)
+        is_mask = (input_ids == self.mask_token_id).astype(self.dtype)
+        pi_logsnr_at_z = alpha * (1 - is_mask) / (self.vocab_size - 1) + (1 - alpha) * is_mask
+        return pi_logsnr_at_z.astype(log_snr.dtype)
 
-    def pi_lambda_prime(self, log_snr: chex.Array, _: chex.Array) -> chex.Array:
-        alpha = safe_sigmoid(self.scale * log_snr + self.shift)[..., None].astype(jnp.float32)
+    def pi_lambda_prime(self, log_snr: chex.Array) -> chex.Array:
+        alpha = safe_sigmoid(self.scale * log_snr.astype(jnp.float32) + self.shift)[..., None]
         alpha_prime = self.scale * alpha * (1 - alpha)
         pi_prime = alpha_prime.astype(log_snr.dtype) * (self.uniform_vec - self.mask_vec)
         return pi_prime
 
-    def pi_lambda_prime_from_ids(self, log_snr: chex.Array, _: chex.Array) -> chex.Array:
-        return self.pi_lambda_prime(log_snr, None)
+    def pi_lambda_prime_at_ids(self, log_snr: chex.Array, input_ids: chex.Array) -> chex.Array:
+        alpha = safe_sigmoid(self.scale * log_snr.astype(jnp.float32) + self.shift)
+        alpha_prime = self.scale * alpha * (1 - alpha)
+        pi_prime_at_z = alpha_prime * (self.uniform_vec - self.mask_vec)[input_ids]
+        return pi_prime_at_z
     
     def sample_marginals(self, key: chex.PRNGKey, alpha: chex.Array, log_snr: chex.Array, labels: chex.Array, mode: str | None = "high") -> chex.Array:
         pi_u_at_logsnr = safe_sigmoid(self.scale * log_snr + self.shift)
@@ -253,11 +259,11 @@ class MixingSchedule(MixingRate, MixingDistribution):
 
     def marginal_probs(self, log_snr: chex.Array, probs: chex.Array) -> chex.Array:
         alpha = self.alpha_from_log_snr(log_snr)[..., None]
-        return alpha.astype(probs.dtype) * probs + (1 - alpha).astype(probs.dtype) * self.pi_lambda(log_snr, probs)
+        return alpha.astype(probs.dtype) * probs + (1 - alpha).astype(probs.dtype) * self.pi_lambda(log_snr)
 
     def marginal_probs_from_ids(self, log_snr: chex.Array, input_ids: chex.Array, dtype: jnp.dtype = None) -> chex.Array:
         alpha = self.alpha_from_log_snr(log_snr)
-        probs = (1 - alpha[..., None]).astype(dtype) * self.pi_lambda_from_ids(log_snr, input_ids)
+        probs = (1 - alpha[..., None]).astype(dtype) * self.pi_lambda(log_snr)
         probs = probs.at[(*jnp.indices(input_ids.shape), input_ids)].add(alpha.astype(dtype))  # scatter_add
         return probs
 
@@ -280,7 +286,7 @@ class MixingSchedule(MixingRate, MixingDistribution):
     #     def _sample_single(inputs):
     #         key, scalar_log_snr, token_id = inputs
     #         alpha = self.alpha_from_log_snr(scalar_log_snr.astype(jnp.float32))
-    #         probs = (1 - alpha) * self.pi_lambda_from_ids(scalar_log_snr, token_id)
+    #         probs = (1 - alpha) * self.pi_lambda_at_ids(scalar_log_snr, token_id)
     #         probs = probs.at[token_id].add(alpha)
     #         log_probs = safe_log(probs)
     #         return jax.random.categorical(key, log_probs, axis=-1, mode=mode)
@@ -311,8 +317,8 @@ class MixingSchedule(MixingRate, MixingDistribution):
 
     #     def _loss_weights_single(inputs):
     #         scalar_log_snr, input_id, label = inputs
-    #         pi = self.pi_lambda_from_ids(scalar_log_snr, label)
-    #         pi_prime = self.pi_lambda_prime_from_ids(scalar_log_snr, label)
+    #         pi = self.pi_lambda_at_ids(scalar_log_snr, label)
+    #         pi_prime = self.pi_lambda_prime_at_ids(scalar_log_snr, label)
     #         pi_at_z = pi[input_id].astype(jnp.float32)
     #         pi_prime_at_z = pi_prime[input_id].astype(jnp.float32)
     #         snr = jnp.exp(scalar_log_snr.astype(jnp.float32))
@@ -324,10 +330,10 @@ class MixingSchedule(MixingRate, MixingDistribution):
     #     return flat_loss_weights.reshape(batch_shape)
 
     def get_loss_weights(self, log_snr: chex.Array, input_ids: chex.Array, labels: chex.Array) -> chex.Array:
-        pi = self.pi_lambda_from_ids(log_snr, labels)
-        pi_prime = self.pi_lambda_prime_from_ids(log_snr, labels)
-        pi_at_z = jnp.take_along_axis(pi, input_ids[..., None], axis=-1).squeeze(-1).astype(jnp.float32)  # gather
-        pi_prime_at_z = jnp.take_along_axis(pi_prime, input_ids[..., None], axis=-1).squeeze(-1).astype(jnp.float32)  # gather
+        pi_at_z = self.pi_lambda_at_ids(log_snr, input_ids)
+        pi_prime_at_z = self.pi_lambda_prime_at_ids(log_snr, input_ids)
+        # pi_at_z = jnp.take_along_axis(pi, input_ids[..., None], axis=-1).squeeze(-1).astype(jnp.float32)  # gather
+        # pi_prime_at_z = jnp.take_along_axis(pi_prime, input_ids[..., None], axis=-1).squeeze(-1).astype(jnp.float32)  # gather
 
         snr = jnp.exp(log_snr)
         delta_zx = (input_ids == labels).astype(log_snr.dtype)
@@ -401,17 +407,17 @@ class MixingSchedule(MixingRate, MixingDistribution):
     def mask_token_id(self) -> int | None:
         return self._distribution.mask_token_id
 
-    def pi_lambda(self, log_snr: chex.Array, probs: chex.Array) -> chex.Array:
-        return self._distribution.pi_lambda(log_snr, probs)
+    def pi_lambda(self, log_snr: chex.Array) -> chex.Array:
+        return self._distribution.pi_lambda(log_snr)
 
-    def pi_lambda_from_ids(self, log_snr, input_ids):
-        return self._distribution.pi_lambda_from_ids(log_snr, input_ids)
+    def pi_lambda_at_ids(self, log_snr, input_ids):
+        return self._distribution.pi_lambda_at_ids(log_snr, input_ids)
 
-    def pi_lambda_prime(self, log_snr: chex.Array, probs: chex.Array) -> chex.Array:
-        return self._distribution.pi_lambda_prime(log_snr, probs)
+    def pi_lambda_prime(self, log_snr: chex.Array) -> chex.Array:
+        return self._distribution.pi_lambda_prime(log_snr)
 
-    def pi_lambda_prime_from_ids(self, log_snr: chex.Array, input_ids: chex.Array) -> chex.Array:
-        return self._distribution.pi_lambda_prime_from_ids(log_snr, input_ids)
+    def pi_lambda_prime_at_ids(self, log_snr: chex.Array, input_ids: chex.Array) -> chex.Array:
+        return self._distribution.pi_lambda_prime_at_ids(log_snr, input_ids)
 
 
 def create_mixing_schedule(
@@ -420,7 +426,7 @@ def create_mixing_schedule(
     max_log_snr: float = 10.0,
     distribution: MixingDistribution | tp.Literal["general", "hybrid"] = "hybrid",
     pi_lambda: tp.Callable[[chex.Array, chex.Array], chex.Array] | None = None,
-    pi_lambda_from_ids: tp.Callable[[chex.Array, chex.Array], chex.Array] | None = None,
+    pi_lambda_at_ids: tp.Callable[[chex.Array, chex.Array], chex.Array] | None = None,
     pi_lambda_prime: tp.Callable[[chex.Array, chex.Array], chex.Array] | None = None,
     vocab_size: int = None,
     prior_distribution: Priors | chex.Array = Priors.MASKED,
@@ -439,7 +445,7 @@ def create_mixing_schedule(
             The mixing distribution, either a MixingDistribution instance or "general" or "hybrid".
         pi_lambda (callable, optional):
             Custom function for computing the mixing distribution.
-        pi_lambda_from_ids (callable, optional):
+        pi_lambda_at_ids (callable, optional):
             Custom function for computing the mixing distribution from input IDs.
         pi_lambda_prime (callable, optional):
             Custom function for computing the derivative of the mixing distribution.
@@ -469,17 +475,17 @@ def create_mixing_schedule(
     if isinstance(distribution, str):
         if vocab_size is None:
             raise ValueError("vocab_size must be provided for MixingDistribution.")
-        if distribution == "general":
-            if pi_lambda is None:
-                raise ValueError("pi_lambda must be provided for GeneralMixingDistribution.")
-            distribution = GeneralMixingDistribution(
-                vocab_size=vocab_size,
-                prior_distribution=prior_distribution,
-                mask_token_id=mask_token_id,
-                pi_lambda=pi_lambda,
-                pi_lambda_from_ids=pi_lambda_from_ids,
-                pi_lambda_prime=pi_lambda_prime,
-            )
+        # if distribution == "general":
+        #     if pi_lambda is None:
+        #         raise ValueError("pi_lambda must be provided for GeneralMixingDistribution.")
+        #     distribution = GeneralMixingDistribution(
+        #         vocab_size=vocab_size,
+        #         prior_distribution=prior_distribution,
+        #         mask_token_id=mask_token_id,
+        #         pi_lambda=pi_lambda,
+        #         pi_lambda_at_ids=pi_lambda_at_ids,
+        #         pi_lambda_prime=pi_lambda_prime,
+        #     )
         elif distribution == "hybrid":
             distribution = HybridMixingDistribution(
                 vocab_size=vocab_size,
