@@ -46,7 +46,7 @@ def parse_args(
     parser.add_argument("--beta2", type=float, default=0.99, help="Beta2 parameter for the optimizer.")
     parser.add_argument("--adam_eps", type=float, default=1e-8, help="Epsilon for Adam/Laprop optimizer.")
     parser.add_argument("--weight_decay", type=float, default=0.0, help="Weight decay for the optimizer.")
-    parser.add_argument("--ln_wd", type=float, default=None, help="Weight decay for layer normalization parameters.")
+    parser.add_argument("--ln_wd", type=float, default=0.0, help="Weight decay for layer normalization parameters.")
     parser.add_argument("--bias_wd", type=float, default=0.0, help="Weight decay for bias parameters.")
     # mixing schedule & diffusion loss
     parser.add_argument("--beta_is_div", type=float, default=1.0, help="Weight of the IS-divergence loss.")
