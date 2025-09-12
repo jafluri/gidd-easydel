@@ -94,8 +94,9 @@ class GiddLoss(nn.Module):
         log_q_zt = jnp.take_along_axis(log_q_t, input_ids[..., None], axis=-1).squeeze(-1).astype(jnp.float32)
         log_p_zt = with_sharding_constraint(log_p_zt, self.tokens_partition_spec)
         log_q_zt = with_sharding_constraint(log_q_zt, self.tokens_partition_spec)
+        ratio = jnp.exp(log_q_zt) / (jnp.exp(log_p_zt) + 1e-12)
         log_ratio = log_q_zt - log_p_zt
-        is_div = jnp.exp(log_ratio) - log_ratio - 1
+        is_div = ratio - log_ratio - 1
 
         kl_div = optax.losses.kl_divergence_with_log_targets(log_p_t, log_q_t, axis=-1).astype(jnp.float32)
         kl_div = with_sharding_constraint(kl_div, self.tokens_partition_spec)
