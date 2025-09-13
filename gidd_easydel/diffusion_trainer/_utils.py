@@ -38,26 +38,30 @@ def create_constant_length_dataset(
     def constant_length_generator() -> tp.Iterator[jnp.ndarray]:
         iterator = iter(dataset)
 
-        buffer: list[int] = []
+        buffer: np.ndarray = np.array([], dtype=np.int32)
         shuffle_buffer: list[jnp.ndarray] = []
         shuffle_buffer_size = batch_size * shuffle_buffer_batch_factor
+        eos_token = np.array([eos_token_id], dtype=np.int32)
 
         while True:
             try:
                 tokens = next(iterator)[tokens_field]
-                if not isinstance(tokens, list):
-                    assert isinstance(tokens, (np.ndarray, jnp.ndarray)), (
+                if not isinstance(tokens, np.ndarray):
+                    assert isinstance(tokens, (jnp.ndarray, list)), (
                         f"Expected tokens to be a list or np.ndarray or jnp.ndarray, got {type(tokens)}"
                     )
-                    tokens = tokens.tolist()
+                    tokens = np.array(tokens, dtype=np.int32)
+                else:
+                    tokens = tokens.astype(np.int32)
+
                 # append EOS token
-                buffer.extend(tokens)
+                buffer = np.concatenate([buffer, tokens], axis=0)
                 if append_concat_token and len(buffer) % seq_length != 0:
-                    tokens.append(eos_token_id)
+                    buffer = np.concatenate([buffer, eos_token], axis=0)
 
                 while len(buffer) >= seq_length:
                     # Pop the first seq_length tokens to form a complete example
-                    example = {"input_ids": jnp.array(buffer[:seq_length], dtype="i4")}
+                    example = {"input_ids": jnp.array(buffer[:seq_length])}
                     buffer = buffer[seq_length:]
                     if shuffle:
                         if len(shuffle_buffer) < shuffle_buffer_size:
