@@ -4,7 +4,6 @@ import os
 import json
 import uuid
 import logging
-from concurrent.futures import ProcessPoolExecutor
 
 import ray
 from pprint import pprint
@@ -227,7 +226,7 @@ def run_on_multislice_resumable(
     remote_fn,
     tpu_type,
     num_slices=1,
-    max_errors=0,
+    max_errors=3,
     max_preemptions=128,
 ):
     assert WANDB_ENTITY is not None and WANDB_PROJECT is not None, "W&B entity and project must be set for resumable run"
@@ -247,15 +246,21 @@ def run_on_multislice_resumable(
             ray.exceptions.RayTaskError,
             ray.exceptions.TaskUnschedulableError,
         ) as e:
+            err_str = str(e).lower()
             logger.info("Caught an error during multislice submission, handling...")
-            if any(x in str(e).lower() for x in ["preempted", "not schedulable"]):
+            if any(x in err_str for x in ["preempted", "not schedulable"]):
                 num_preemptions += 1
                 logger.warning(f"TPU job preempted ({num_preemptions=}): {e}")
                 if num_preemptions > max_preemptions:
                     logger.error("Maximum number of preemptions reached. Exiting.")
                     raise
-            elif "couldn't connect to 'https://huggingface.co'" in str(e).lower():
-                logger.warning(f"TPU job failed (couldn't connect to HF). Resubmitting without penalty: {e}", exc_info=e)
+            elif (
+                "couldn't connect to 'https://huggingface.co'" in err_str
+                or "Read timed out".lower() in err_str
+                or "BrokenProcessPool".lower() in err_str
+                # or "Unable to initialize backend 'tpu'".lower() in err_str
+            ):
+                logger.warning(f"TPU job failed for a known reason. Resubmitting without penalty: {e}", exc_info=e)
             else:
                 num_errors += 1
                 logger.warning(f"TPU job failed ({num_errors=}): {e}", exc_info=e)
