@@ -16,7 +16,8 @@ def safe_sigmoid(x: chex.Array, precision=jnp.float32) -> chex.Array:
     return nn.sigmoid(x.astype(precision)).astype(x.dtype)
 
 
-def safe_log(x: chex.Array, neg_infty: float = -1e6) -> chex.Array:
+def safe_log(x: chex.Array) -> chex.Array:
+    neg_infty = jnp.log(jnp.finfo(x.dtype).tiny)
     return jnp.where(
         x > 0,
         jnp.log(x.clip(jnp.finfo(x.dtype).tiny)),

@@ -83,11 +83,11 @@ class GiddLoss(nn.Module):
         loss_weights = with_sharding_constraint(loss_weights, self.tokens_partition_spec)
         
         logits = logits.at[..., self.mask_token_id].set(-1e6)  # Mask out the logits for the mask token.
-        x_hat = nn.softmax(logits.astype(jnp.float32), axis=-1).astype(dtype)
-
-        log_p_t = self.mixing_schedule.marginal_log_probs(log_snr, x_hat)
-        log_q_t = self.mixing_schedule.marginal_log_probs(log_snr, labels_one_hot)
+        x_hat = nn.softmax(logits.astype(jnp.float32), axis=-1)
+        log_p_t = self.mixing_schedule.marginal_log_probs(log_snr, x_hat).astype(dtype)
         log_p_t = with_sharding_constraint(log_p_t, self.logits_partition_spec)
+
+        log_q_t = self.mixing_schedule.marginal_log_probs(log_snr, labels_one_hot)
         log_q_t = with_sharding_constraint(log_q_t, self.logits_partition_spec)
 
         log_p_zt = jnp.take_along_axis(log_p_t, input_ids[..., None], axis=-1).squeeze(-1).astype(jnp.float32)
@@ -98,7 +98,8 @@ class GiddLoss(nn.Module):
         log_ratio = log_q_zt - log_p_zt
         is_div = ratio - log_ratio - 1
 
-        kl_div = optax.losses.kl_divergence_with_log_targets(log_p_t, log_q_t, axis=-1).astype(jnp.float32)
+        # kl_div = optax.losses.kl_divergence_with_log_targets(log_p_t, log_q_t, axis=-1).astype(jnp.float32)
+        kl_div = (jnp.exp(log_q_t) * (log_q_t - log_p_t)).sum(-1).astype(jnp.float32)
         kl_div = with_sharding_constraint(kl_div, self.tokens_partition_spec)
 
         loss = loss_weights * kl_div + self.beta_is_div * loss_weights * is_div
