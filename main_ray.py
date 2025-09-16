@@ -35,9 +35,9 @@ num_slices = int(TPU_POD_COUNT)
 base_env = {
     # "JAX_PLATFORMS": "tpu",
     "EASYDEL_PROFILING": os.getenv("EASYDEL_PROFILING", "1"),  # Enable EasyDeL profiling.
-    "EASYDEL_PROFILING_DIR": os.getenv("EASYDEL_PROFILING_DIR", f"gs://gidd-checkpoints_europe-west4/jax-trace"),  # Directory for EasyDeL profiling outputs.
+    "EASYDEL_PROFILING_DIR": os.getenv("EASYDEL_PROFILING_DIR", f"gs://gidd-checkpoints_{TPU_ZONE[:-2]}_hns/jax-trace"),  # Directory for EasyDeL profiling outputs.
     "EASYDEL_AUTO": os.getenv("EASYDEL_AUTO", "1"),  # Enables EasyDeL's automatic sharding configuration.
-    "LIBTPU_INIT_ARGS": "--xla_tpu_scoped_vmem_limit_kib=98304",
+    "LIBTPU_INIT_ARGS": "--xla_tpu_scoped_vmem_limit_kib=98304" if "v6e" in TPU_VERSION else "",
     "HF_TOKEN": os.getenv("HF_TOKEN_FOR_EASYDEL", ""),  # Hugging Face token.
     "HF_DATASETS_CACHE": "/dev/shm/huggingface-dataset",  # RAM-disk for dataset cache.
     "HF_HOME": "/dev/shm/huggingface",  # RAM-disk for model cache.
@@ -53,8 +53,8 @@ base_env = {
 if not TPU_ZONE:
     logger.warning("TPU_ZONE is not set. This is fine if you're not running on TPU or if the TPU has environment variables SAVE_DIRECTORY and DATA_FILES.")
 
-SAVE_DIRECTORY = os.getenv("SAVE_DIRECTORY", f"gs://gidd-checkpoints_{TPU_ZONE[:-2]}")
-DATA_FILES = os.getenv("DATA_FILES", f"gs://nemotron-cc_{TPU_ZONE[:-2]}")
+SAVE_DIRECTORY = os.getenv("SAVE_DIRECTORY", f"gs://gidd-checkpoints_{TPU_ZONE[:-2]}_hns")
+DATA_FILES = os.getenv("DATA_FILES", f"gs://nemotron-cc_{TPU_ZONE[:-2]}_hns")
 
 logger.info(f"Using save directory: {SAVE_DIRECTORY}")
 logger.info(f"Using data files: {DATA_FILES}")
@@ -67,8 +67,23 @@ assert ARGS.data_files is not None
 ARGS.gidd_run_id = GIDD_RUN_ID
 ARGS.ray_job_id = ray.runtime_context.get_runtime_context().get_job_id()
 
+
+def kill_vfio_holders():
+    import os, subprocess
+    subprocess.run(["bash","-lc","command -v lsof >/dev/null 2>&1 || (sudo apt-get update -y && sudo apt-get install -y lsof)"], check=False)
+    p = subprocess.run(["bash","-lc","lsof -t /dev/vfio/* 2>/dev/null | sort -u"], capture_output=True, text=True)
+    pids = [pid for pid in p.stdout.split() if pid.isdigit() and int(pid) != os.getpid()]
+    if pids:
+        subprocess.run(["bash","-lc","kill -9 " + " ".join(pids)], check=False)
+    return [int(x) for x in pids]
+
 @ray.remote
 def main():
+    killed = kill_vfio_holders()
+    if killed:
+        logger.info(f"Killed {len(killed)} process(es) holding /dev/vfio/*: {killed}")
+        time.sleep(5)
+
     import easydel as ed
     from gidd_easydel.train import train
 
@@ -100,7 +115,6 @@ def main():
         raise
     else:
         logger.info("Successfully completed training")
-    
 
 
 def submit_to_host(remote_fn, host_info, env):
@@ -198,6 +212,10 @@ def submit_to_multislice(remote_fn, tpu_type, num_slices=1):
     slice_infos, host_pgs = zip(*results)
     all_pgs.extend(host_pgs)
 
+    logger.info(f"Discovered {len(slice_infos)} slice(s):")
+    for si in slice_infos:
+        logger.info(f"    + {si['pod_name']} ({si['tpu_type']}, {si['num_hosts']} hosts, {si['num_tpus_per_host']} TPU/host)")
+
     coord_ip = slice_infos[0]['ip']
 
     # num_procs = sum(
@@ -285,7 +303,8 @@ def run_on_multislice_resumable(
                 except Exception as e:
                     logger.warning(f"Failed to remove placement group {pg}: {e}", exc_info=e)
             # and chill again
-            time.sleep(10)
+            logger.info("Waiting 30s before resubmitting...")
+            time.sleep(30)
 
     if done:
         logger.info("All done!")
