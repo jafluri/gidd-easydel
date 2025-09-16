@@ -171,7 +171,6 @@ def train(args):
     if args.dcn_sharding is not None:
         args.sharding_dcn_axis_dims = get_sharding_axis(args.dcn_sharding, total_batch_size, num_procs, num_devices)
 
-    has_checkpoint = False
     if args.resume_wandb_id:
         run = wandb.Api().run(f"EasyDeL-diffusiontrainer-Gidd/{args.resume_wandb_id}")
         args.save_directory = run.config["save_directory"]
@@ -193,6 +192,15 @@ def train(args):
         )
 
     logger.info(f"Saving models to {args.save_directory}")
+
+    if os.getenv("SKIP_GS_LOCATION_CHECK", "0") != "1":
+        zone = os.getenv("TPU_ZONE", None)
+        assert zone is not None, "TPU_ZONE environment variable must be set"
+        location = zone[:-2]
+        if args.data_files.startswith("gs://"):
+            assert location in args.data_files, f"Data files {args.data_files} must be in the same location as the TPU zone {zone}"
+        if args.save_directory.startswith("gs://"):
+            assert location in args.save_directory, f"Save directory {args.save_directory} must be in the same location as the TPU zone {zone}"
 
     # if has_checkpoint:
     #     resume_if_possible = True
