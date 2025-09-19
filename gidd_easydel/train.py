@@ -193,7 +193,7 @@ def train(args):
 
     logger.info(f"Saving models to {args.save_directory}")
 
-    if os.getenv("SKIP_GS_LOCATION_CHECK", "0") != "1":
+    if os.getenv("SKIP_GS_LOCATION_CHECK", "0") != "1" and any("gs://" in p for p in [args.data_files, args.save_directory]):
         zone = os.getenv("TPU_ZONE", None)
         assert zone is not None, "TPU_ZONE environment variable must be set"
         location = zone[:-2]
@@ -342,7 +342,7 @@ def train(args):
             # "resume_from": f"{args.resume_wandb_id}?_step={start_step}" if args.resume_wandb_id else None
         },
         num_train_epochs=1,
-        total_batch_size=total_batch_size,
+        total_batch_size=total_batch_size // grad_accum_steps,  # easydel is weird like that
         gradient_accumulation_steps=grad_accum_steps,
         do_last_save=True,
         max_sequence_length=max_length,
