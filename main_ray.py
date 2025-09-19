@@ -70,25 +70,25 @@ ARGS.ray_job_id = ray.runtime_context.get_runtime_context().get_job_id()
 
 def kill_vfio_holders():
     import os, subprocess
-    subprocess.run(["bash","-lc","command -v lsof >/dev/null 2>&1 || (sudo apt-get update -y && sudo apt-get install -y lsof)"], check=False)
-    p = subprocess.run(["bash","-lc","lsof -t /dev/vfio/* 2>/dev/null | sort -u"], capture_output=True, text=True)
+    subprocess.run(["bash", "-lc", "command -v lsof >/dev/null 2>&1 || (sudo apt-get update -y && sudo apt-get install -y lsof)"], check=False)
+    p = subprocess.run(["bash", "-lc", "lsof -t /dev/vfio/* 2>/dev/null | sort -u"], capture_output=True, text=True)
     pids = [pid for pid in p.stdout.split() if pid.isdigit() and int(pid) != os.getpid()]
     if pids:
-        subprocess.run(["bash","-lc","kill -9 " + " ".join(pids)], check=False)
+        subprocess.run(["bash", "-lc", "kill -9 " + " ".join(pids)], check=False)
     return [int(x) for x in pids]
 
 @ray.remote
 def main():
     killed = kill_vfio_holders()
     if killed:
-        logger.info(f"Killed {len(killed)} process(es) holding /dev/vfio/*: {killed}")
+        print(f"Killed {len(killed)} process(es) holding /dev/vfio/*: {killed}")
         time.sleep(5)
 
     import easydel as ed
     from gidd_easydel.train import train
 
     if ARGS.resume_wandb_id is not None:
-        logger.info(f"Resuming from provided W&B run ID: {ARGS.resume_wandb_id}")
+        print(f"Resuming from provided W&B run ID: {ARGS.resume_wandb_id}")
     else:
         # try to resume run
         import wandb
@@ -98,12 +98,12 @@ def main():
             order="+created_at",
         )
         if len(runs) > 1:
-            logger.warning(f"Found multiple runs with gidd_run_id '{GIDD_RUN_ID}'. Resuming from newest one.")
+            print(f"Found multiple runs with gidd_run_id '{GIDD_RUN_ID}'. Resuming from newest one.")
             runs = runs[:1]
 
         if len(runs) == 1:
             run = runs[0]
-            logger.info(f"Resuming from W&B run: {run.id}")
+            print(f"Resuming from W&B run: {run.id}")
             ARGS.resume_wandb_id = run.id
             assert ARGS.resume_wandb_id == run.id, "what???"
 
@@ -111,10 +111,13 @@ def main():
         pprint(ARGS)
         train(ARGS)
     except Exception as e:
-        logger.error("An error occurred during training:", exc_info=e)
+        print(f"An error occurred during training: {e}")
         raise
     else:
-        logger.info("Successfully completed training")
+        print("Successfully completed training")
+
+    print("Returning from main()")
+    return "hello"
 
 
 def submit_to_host(remote_fn, host_info, env):
@@ -216,6 +219,10 @@ def submit_to_multislice(remote_fn, tpu_type, num_slices=1):
     for si in slice_infos:
         logger.info(f"    + {si['pod_name']} ({si['tpu_type']}, {si['num_hosts']} hosts, {si['num_tpus_per_host']} TPU/host)")
 
+
+    # logger.info("Waiting for 10s before starting jobs...")
+    # time.sleep(10)
+
     coord_ip = slice_infos[0]['ip']
 
     # num_procs = sum(
@@ -244,7 +251,7 @@ def run_on_multislice_resumable(
     remote_fn,
     tpu_type,
     num_slices=1,
-    max_errors=3,
+    max_errors=0,
     max_preemptions=128,
 ):
     assert WANDB_ENTITY is not None and WANDB_PROJECT is not None, "W&B entity and project must be set for resumable run"
@@ -255,7 +262,8 @@ def run_on_multislice_resumable(
         calls, pgs = [], []
         try:
             calls, pgs = submit_to_multislice(remote_fn, tpu_type, num_slices)
-            ray.get(calls)
+            results = ray.get(calls)
+            logger.info(f"Results: {results}")
             logger.info("Successfully completed multislice submission")
             done = True
             break
@@ -302,9 +310,9 @@ def run_on_multislice_resumable(
                     remove_placement_group(pg)
                 except Exception as e:
                     logger.warning(f"Failed to remove placement group {pg}: {e}", exc_info=e)
-            # and chill again
-            logger.info("Waiting 30s before resubmitting...")
-            time.sleep(30)
+        # and chill again
+        logger.info("Waiting 30s before resubmitting...")
+        time.sleep(30)
 
     if done:
         logger.info("All done!")
